@@ -54,6 +54,11 @@
 - [x] Compare the matched recipients' average `poverty_rate` and `pct_no_vehicle` against the metro-wide average.
 - [x] Save numbers in `docs/equity_audit.md` and hand off to **Lane 5** for the slide deck.
 
+### Milestone 1D: "Rescue Deserts" & Spatial Equity Analysis (Going Further — 25% Rigor Score)
+- [ ] Cross-reference census tracts in Cook County with matched pantry locations to identify **"Rescue Deserts"** (tracts with `poverty_rate > 30%` and `pct_no_vehicle > 40%` that have 0 verified cold-storage recipients within a 5 km radius).
+- [ ] Document the structural infrastructure deficit: articulate for judges why food rescue algorithms cannot solve food access without municipal investments in cold chain / walk-in coolers.
+- [ ] Export spatial equity metrics into `docs/equity_audit.md` for Lane 4 (map layer) and Lane 5 (pitch deck).
+
 ---
 
 ## 🧠 Lane 2: ADK Agent & MCP (`branch: agent`) — `@TODO_Name_2`
@@ -73,9 +78,10 @@
   6. Ready-to-Send Pickup Alert Message
   7. Backups #2 and #3 ("If They Say No") + Rejected Decoys warning
 - [x] Plug in **Lane 3's** custom tools from `agent/tools.py`.
+- [ ] Connect `run_equity_audit_across_postings` into `tools_list` in `agent/agent.py` so the agent can execute real-time Responsible AI audits on demand.
 
 ### Milestone 2C: Coordinator Q&A Verification (Target: 2:15)
-- [x] Test all 7 coordinator questions from `README.md`:
+- [x] Test all coordinator questions from `README.md` (7 original verified; Responsible AI audit pending):
   - [x] *"Who can take 10 crates of spinach and collect before 8pm?"*
   - [x] *"Why them and not the other pantry?"* (explains why `Greenline` decoy was rejected)
   - [x] *"They said no. Who's next?"* (promotes Backup #2)
@@ -83,6 +89,13 @@
   - [x] *"Can they pick it up themselves or do we need a driver?"* (`refrigerated_transport`)
   - [x] *"Whose neighborhood does this help?"* (`tract_demographics`)
   - [x] *"Write the pickup message."*
+  - [ ] *"Run an equity audit across our dispatches — are we favoring loading docks over high-need tracts?"* (cites `docs/equity_audit.md` findings)
+
+### Milestone 2D: Conversational Pantry Intake Agent (Going Further — "The 4-Hour Add-on")
+- [ ] Implement conversational intake prompt / subagent (`agent/intake.py`):
+  - [ ] Interviews a new pantry coordinator conversationally: *"What kind of cold storage do you have?"* -> follow-up: *"Can you take a pallet off a truck, or does it need hand-carry boxes through a regular door?"*
+  - [ ] Generates structured schema (`cold_storage`, `max_pallets`, `pickup_window_hours`, `refrigerated_transport`) and synthesizes `profile_text`.
+  - [ ] Appends new recipient to `a4i_food.recipients`, calls `AI.EMBED` (or offline fallback), making the pantry immediately searchable in the demo!
 
 ---
 
@@ -107,6 +120,19 @@
   - [x] Formats the ready-to-send SMS/email dispatch card for the highest-ranked non-declined recipient.
   - [x] Supports instant re-dispatch to Backup #2 / #3 when #1 declines.
 
+### Milestone 3D: Dual Routing Policy & Multi-Pantry Split Tool (Going Further)
+- [ ] Add `routing_policy` toggle (`"logistics_first"` vs. `"equity_weighted"`) in `agent/tools.py`:
+  - [ ] **Logistics-First Mode (Default):** Prioritizes largest intake capacity and fastest pickup window.
+  - [ ] **Equity-Weighted Mode:** Strongly boosts pantries situated in severe transit-desert tracts (`pct_no_vehicle > 35%` or `poverty_rate > 25%`).
+- [ ] Implement Multi-Pantry Load Splitting for large bulk farm offers (e.g., 5 tons of potatoes / 10 pallets):
+  - [ ] When `pallets_offered > top_recipient.max_pallets`, automatically partition the load across 2–3 nearby neighborhood pantries.
+  - [ ] Output a grouped allocation schedule with individual tailored dispatch messages.
+
+### Milestone 3E: Real-Time openFDA Food Safety Guardrail (Going Further — CC0 External API)
+- [ ] Implement `check_food_recalls(product_name)` in `agent/tools.py` using openFDA Food Enforcement API (`https://api.fda.gov/food/enforcement.json`):
+  - [ ] Checks incoming surplus postings for active food recall alerts (e.g., listeria in bagged spinach, undeclared allergens).
+  - [ ] Halts or flags high-risk surplus items before dispatching to community pantries.
+
 ---
 
 ## 🖥️ Lane 4: Frontend "Uber Dispatch" UI (`branch: frontend`) — `@TODO_Name_4`
@@ -121,6 +147,18 @@
 ### Milestone 4B: Connect Live Agent Backend (Target: 2:15)
 - [ ] Wire UI to **Lane 2's** ADK agent runner / FastAPI endpoint.
 - [ ] Test end-to-end flow on the presentation laptop.
+
+### Milestone 4C: Live Equity Audit Dashboard & Policy Switch (Going Further)
+- [ ] Add an interactive **"📊 Live Equity Audit & Baseline Comparison"** view/modal in `app/main.py`:
+  - [ ] Connects to `/api/equity-audit` (backed by `run_equity_audit_across_postings()`).
+  - [ ] Displays live comparison badges: Matched Cohort (16.4% poverty, 25.8% transit insecure) vs. Metro Baseline (17.0% poverty, 21.9% transit insecure) -> **+3.9% lift in reaching vehicle-insecure households!**
+  - [ ] Visual indicator highlighting matches in high-vulnerability tracts (>40% poverty, >50% no-car).
+- [ ] Add a **Routing Policy Toggle Switch** in the UI (`[ ⚡ Logistics First ]` vs. `[ 🎯 Equity-Weighted ]`) so coordinators can see how ranking shifts between warehouse loading docks and high-need community storefronts.
+
+### Milestone 4D: Conversational Pantry Onboarding Modal (Going Further)
+- [ ] Add a "Register New Pantry" modal in `app/main.py`:
+  - [ ] Coordinator enters natural-language description (e.g. *"St. Jude Pantry in Pilsen, walk-in cooler, no loading dock"*).
+  - [ ] Wires to Lane 2's intake agent endpoint, saves new recipient, and proves they appear immediately in subsequent vector searches.
 
 ---
 
@@ -137,12 +175,18 @@
 - [x] Verify **Trap 4 ("They Said No"):** Declining #1 smoothly promotes #2 with a new outreach message (`scripts/verify_traps.py`).
 
 ### Milestone 5C: Pitch Deck, Video Recording & Submission (Target: 3:30 – 4:15)
-- [ ] **Slide 1:** The Problem, our City, and our Opening Scenario.
-- [ ] **Slide 2:** Architecture (ADK + Gemini + BigQuery `VECTOR_SEARCH` + Managed MCP + Custom Constraint Tools on Cloud Run).
+- [ ] **Slide 1:** The Problem, our City (Chicago: 183 orgs, 20% no-vehicle rate), and our Opening Scenario.
+- [ ] **Slide 2:** Architecture (ADK + Gemini 2.5 Flash + BigQuery `VECTOR_SEARCH` + Managed MCP Toolbox + Custom Constraint Tools on Cloud Run).
 - [ ] **Slide 3:** Why Vector Search Alone Fails (Live proof catching the `Greenline` decoy + cascading backup dispatch).
-- [ ] **Slide 4:** Data Rigor & Equity Audit (Real IRS BMF orgs/income vs. generated operational profiles + **Lane 1's** 10-posting Equity Audit numbers + Honest Limitations: FoodKeeper is consumer guidance, ZIP-centroid locations, Firestore needed for claim locking).
-- [ ] **Slide 5:** Going Further (Conversational Pantry Intake Agent to collect real pantry capacity data).
-- [ ] **Record Narrated Pitch Video** (screen-share walking through the live demo + slides).
+- [ ] **Slide 4: Data Rigor & Equity Audit (25% Rigor Score!):**
+  - [ ] **Responsible AI Design:** Explain why race/ethnicity was deliberately excluded as an input feature (structural proxies vs. causal drivers) and evaluated strictly in the output audit.
+  - [ ] **Need vs. Loading Docks Trade-off:** Present real findings from `docs/equity_audit.md`—bulk farm produce must route to industrial corridors with docks (6%–9% poverty), while immediate prepared meals and diapers route to severe transit-desert tracts (40%–45% poverty, 54%–68% transit insecure, +3.9% metro lift).
+  - [ ] **Honest Limitations:** FoodKeeper is consumer guidance, ZIP-centroid coordinates, transactional store (Firestore/Cloud SQL) needed for claim locking.
+- [ ] **Slide 5: Going Further (The Winning Edge):**
+  - [ ] Conversational Pantry Intake Agent to solve the national lack of public pantry capacity data.
+  - [ ] Multi-pantry load splitting (the 5-ton potato problem).
+  - [ ] openFDA food safety recall guardrail.
+- [ ] **Record Narrated Pitch Video** (screen-share walking through live demo + equity audit tab + slides).
 - [ ] **Upload all 4 items to Portal (`https://portal.angelhack.com/a4i-console`):**
   - [ ] 1. GitHub Repo Link
   - [ ] 2. Google Skills / Qwiklabs Project Link
@@ -165,7 +209,8 @@ Use this structure so **Lane 4** can build the UI immediately while **Lanes 2 & 
     "donor_deadline_hours": 6,
     "usda_shelf_life_hours": 168,
     "effective_window_hours": 6,
-    "shelf_life_note": "Matched USDA FoodKeeper 'Lettuce (spinach)' - consumer home-storage guidance."
+    "shelf_life_note": "Matched USDA FoodKeeper 'Lettuce (spinach)' - consumer home-storage guidance.",
+    "routing_policy": "equity_weighted"
   },
   "matches": [
     {
@@ -198,6 +243,14 @@ Use this structure so **Lane 4** can build the UI immediately while **Lanes 2 & 
       "semantic_rank": 1,
       "rejection_reason": "Matched #1 on meaning ('wants fresh greens and salad vegetables'), but BLOCKED by constraint filter: cold_storage='none' (no refrigeration)."
     }
-  ]
+  ],
+  "equity_audit_summary": {
+    "metro_baseline_poverty_pct": 17.0,
+    "metro_baseline_no_vehicle_pct": 21.9,
+    "matched_cohort_poverty_pct": 16.4,
+    "matched_cohort_no_vehicle_pct": 25.8,
+    "transit_insecurity_lift_pct": 3.9,
+    "audit_verdict": "Intelligently balances cold-chain logistics for bulk produce with direct equity routing to severe transit-desert tracts (+3.9% lift)."
+  }
 }
 ```
