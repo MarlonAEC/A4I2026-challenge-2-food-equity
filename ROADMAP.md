@@ -8,6 +8,8 @@
 ---
 
 ## 👥 Team Roster & Branches
+- **Shared GCP Project ID:** `qwiklabs-gcp-04-300332596f08`
+- **BigQuery Dataset:** `qwiklabs-gcp-04-300332596f08.a4i_food` (Region: `US`)
 
 | Role | Teammate Name | Git Branch | Primary Folder / Files |
 | :--- | :--- | :--- | :--- |

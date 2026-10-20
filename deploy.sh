@@ -11,7 +11,12 @@ set -euo pipefail
 
 SERVICE_NAME="${1:-food-rescue-broker}"
 REGION="${2:-us-central1}"
-PROJECT_ID="${PROJECT_ID:-$(gcloud config get-value project 2>/dev/null || true)}"
+DEFAULT_PROJECT_ID="qwiklabs-gcp-04-300332596f08"
+GCLOUD_PROJECT="$(gcloud config get-value project 2>/dev/null || true)"
+if [[ -z "${GCLOUD_PROJECT}" || "${GCLOUD_PROJECT}" == "(unset)" ]]; then
+  GCLOUD_PROJECT="${DEFAULT_PROJECT_ID}"
+fi
+PROJECT_ID="${PROJECT_ID:-${GCLOUD_PROJECT}}"
 
 if [[ -z "${PROJECT_ID}" || "${PROJECT_ID}" == "(unset)" ]]; then
   echo "❌ ERROR: No Google Cloud project is set."
