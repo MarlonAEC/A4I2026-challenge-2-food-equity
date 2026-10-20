@@ -29,8 +29,17 @@ echo "   Region  : ${REGION}"
 echo "============================================================"
 echo
 
-echo "1/4 Running pre-deploy Judge-Trap verification suite..."
+echo "1/4 Running pre-deploy Judge-Trap verification suite & building LikeC4 architecture..."
 python3 scripts/verify_traps.py
+
+if command -v likec4 >/dev/null 2>&1; then
+  echo "Building LikeC4 architecture interactive site into app/static/architecture..."
+  likec4 build --base /architecture/ --use-hash-history -o app/static/architecture
+elif [ -f "app/static/architecture/index.html" ]; then
+  echo "Using existing pre-built LikeC4 bundle in app/static/architecture"
+else
+  echo "⚠️ Warning: likec4 CLI not found and no pre-built bundle present."
+fi
 echo
 
 echo "2/4 Ensuring Cloud Run & Cloud Build APIs are enabled..."
@@ -69,6 +78,7 @@ SERVICE_URL="$(gcloud run services describe "${SERVICE_NAME}" \
 echo
 echo "4/4 Verifying live Cloud Run endpoint: ${SERVICE_URL}"
 curl -fsS "${SERVICE_URL}/healthz" && echo " <- /healthz OK"
+curl -fsS "${SERVICE_URL}/architecture" >/dev/null && echo " <- /architecture OK"
 python3 scripts/verify_traps.py "${SERVICE_URL}"
 
 echo

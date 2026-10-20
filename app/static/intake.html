@@ -1,0 +1,810 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>RescueDispatch — Conversational Pantry Onboarding</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230f1613'/%3E%3Ccircle cx='32' cy='32' r='14' fill='%2315803d'/%3E%3Ccircle cx='32' cy='32' r='6' fill='%23ffffff'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700&family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&display=swap">
+<style>
+:root {
+  --bg: #f3f5f2;
+  --surface: #ffffff;
+  --surface-2: #eef1ec;
+  --fg: #0f1613;
+  --muted: #5d6963;
+  --line: #dfe4e0;
+  --accent: #0f1613;
+  --on-accent: #ffffff;
+  --good: #15803d;
+  --good-soft: #dcfce7;
+  --warn: #b45309;
+  --warn-soft: #fef3c7;
+  --bad: #b91c1c;
+  --bad-soft: #fee2e2;
+  --donor: #1d4ed8;
+  --donor-soft: #dbeafe;
+  --font-display: "Sora", "Helvetica Neue", Arial, sans-serif;
+  --font-body: "DM Sans", "Helvetica Neue", Arial, sans-serif;
+  --radius: 14px;
+  --shadow: 0 10px 30px rgba(15, 22, 19, 0.08);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0b0f0d; --surface: #151b18; --surface-2: #1b2320; --fg: #f1f4f2; --muted: #96a29b; --line: #26312b;
+    --accent: #f1f4f2; --on-accent: #0b0f0d;
+    --good: #4ade80; --good-soft: #10351f; --warn: #fbbf24; --warn-soft: #3a2a08; --bad: #f87171; --bad-soft: #3f1515;
+    --donor: #60a5fa; --donor-soft: #0f2447;
+    --shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0b0f0d; --surface: #151b18; --surface-2: #1b2320; --fg: #f1f4f2; --muted: #96a29b; --line: #26312b;
+  --accent: #f1f4f2; --on-accent: #0b0f0d;
+  --good: #4ade80; --good-soft: #10351f; --warn: #fbbf24; --warn-soft: #3a2a08; --bad: #f87171; --bad-soft: #3f1515;
+  --donor: #60a5fa; --donor-soft: #0f2447;
+  --shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  color-scheme: dark;
+}
+
+html, body { min-height: 100%; margin: 0; }
+body {
+  background: var(--bg); color: var(--fg);
+  font-family: var(--font-body); font-size: 14px; line-height: 1.45;
+  padding: 14px 18px;
+  box-sizing: border-box;
+}
+* { box-sizing: border-box; }
+h1, h2, h3, h4 { margin: 0; font-family: var(--font-display); text-wrap: balance; }
+p { margin: 0; }
+button { font: inherit; cursor: pointer; }
+button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visible { outline: 2px solid var(--donor); outline-offset: 2px; }
+.num { font-variant-numeric: tabular-nums; }
+
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Header */
+header.top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding-bottom: 4px;
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-decoration: none;
+  color: inherit;
+}
+.brand .mark {
+  width: 34px; height: 34px; border-radius: 10px; background: var(--accent); color: var(--on-accent);
+  display: grid; place-items: center; font-family: var(--font-display); font-weight: 700;
+}
+.brand h1 { font-size: 18px; font-weight: 700; letter-spacing: -0.01em; }
+.nav-links { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.btn {
+  border-radius: 10px; padding: 9px 13px; font-weight: 600; font-size: 13px;
+  border: 1px solid var(--line); background: var(--surface); color: var(--fg);
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  text-decoration: none; white-space: nowrap; transition: filter .15s ease;
+}
+.btn:hover { filter: brightness(1.05); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.btn.go { background: var(--good); border-color: var(--good); color: #ffffff; }
+.btn[disabled] { opacity: 0.6; cursor: wait; }
+
+/* Hero */
+.hero {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 20px 24px;
+  box-shadow: var(--shadow);
+  display: grid;
+  gap: 8px;
+}
+.hero-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--good);
+}
+.hero h2 { font-size: 24px; font-weight: 700; letter-spacing: -0.02em; }
+.hero p { color: var(--muted); font-size: 13.5px; max-width: 85ch; line-height: 1.5; }
+
+/* Preset Scenarios */
+.scenarios-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 16px;
+}
+.scenarios-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.scenarios-head h3 { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+.scenarios-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 10px;
+}
+.scenario-btn {
+  text-align: left;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+  color: var(--fg);
+  display: grid;
+  gap: 3px;
+  transition: all .15s ease;
+}
+.scenario-btn:hover { border-color: var(--accent); background: var(--surface); }
+.scenario-btn[aria-pressed="true"] { border-color: var(--good); background: color-mix(in srgb, var(--good-soft) 30%, var(--surface)); }
+.scenario-btn .stitle { font-weight: 700; font-size: 13px; }
+.scenario-btn .sdesc { font-size: 11.5px; color: var(--muted); line-height: 1.35; }
+
+/* Two-column layout */
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .layout { grid-template-columns: 1fr; }
+}
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  box-shadow: var(--shadow);
+}
+.panel h3 {
+  font-size: 16px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Form Styles */
+.form-section { display: grid; gap: 10px; }
+.form-section-title {
+  font-size: 11.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 4px;
+  margin-top: 4px;
+}
+.f { display: grid; gap: 4px; font-size: 12px; font-weight: 500; color: var(--muted); }
+.f input, .f textarea, .f select {
+  width: 100%; font: inherit; font-size: 13.5px; color: var(--fg);
+  background: var(--surface-2); border: 1px solid var(--line);
+  border-radius: 9px; padding: 9px 11px;
+}
+.f textarea { resize: vertical; min-height: 54px; }
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.grid-3 { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 10px; }
+
+/* Live Interpretation / Preview Card */
+.preview-card {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.preview-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 999px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.status-pill.complete { background: var(--good-soft); color: var(--good); }
+.status-pill.followup { background: var(--warn-soft); color: var(--warn); }
+.status-pill.contradiction { background: var(--bad-soft); color: var(--bad); }
+
+.attr-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+.attr-chip {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 8px 10px;
+  display: grid;
+  gap: 2px;
+}
+.attr-chip .ak { font-size: 10.5px; color: var(--muted); font-weight: 600; text-transform: uppercase; }
+.attr-chip .av { font-size: 13px; font-weight: 700; color: var(--fg); }
+.attr-chip .av.good { color: var(--good); }
+.attr-chip .av.warn { color: var(--warn); }
+.attr-chip .av.bad { color: var(--bad); }
+
+/* Alert Box */
+.alert-box {
+  padding: 10px 12px;
+  border-radius: 9px;
+  font-size: 12.5px;
+  line-height: 1.4;
+  display: flex;
+  gap: 8px;
+  align-items: start;
+}
+.alert-box.warn { background: var(--warn-soft); color: var(--warn); border: 1px solid color-mix(in srgb, var(--warn) 30%, transparent); }
+.alert-box.bad { background: var(--bad-soft); color: var(--bad); border: 1px solid color-mix(in srgb, var(--bad) 30%, transparent); }
+.alert-box.good { background: var(--good-soft); color: var(--good); border: 1px solid color-mix(in srgb, var(--good) 30%, transparent); }
+
+/* Synthesized Profile Text */
+.profile-synthesis {
+  background: var(--surface);
+  border: 1px dashed var(--line);
+  border-radius: 9px;
+  padding: 12px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--fg);
+}
+.profile-synthesis b { color: var(--donor); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; display: block; margin-bottom: 4px; }
+
+/* Probe Result Card */
+.probe-result {
+  background: var(--surface);
+  border: 2px solid var(--good);
+  border-radius: 12px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-shadow: 0 4px 14px rgba(21, 128, 61, 0.12);
+}
+.probe-result .head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.probe-result h4 { font-size: 15px; font-weight: 700; color: var(--good); }
+.probe-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+.probe-stat {
+  background: var(--surface-2);
+  border-radius: 8px;
+  padding: 8px;
+  text-align: center;
+}
+.probe-stat .k { font-size: 10.5px; color: var(--muted); }
+.probe-stat .v { font-size: 16px; font-weight: 700; font-family: var(--font-display); }
+
+.toast {
+  position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%);
+  z-index: 1000; background: var(--accent); color: var(--on-accent);
+  padding: 10px 18px; border-radius: 999px; font-size: 13px; font-weight: 500;
+  box-shadow: var(--shadow); opacity: 0; pointer-events: none; transition: opacity .2s ease;
+}
+.toast.show { opacity: 1; }
+.spin {
+  display: inline-block; width: 14px; height: 14px; border: 2px solid currentColor;
+  border-top-color: transparent; border-radius: 50%; animation: spin 0.8s linear infinite;
+  vertical-align: middle; margin-right: 6px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <header class="top">
+    <a class="brand" href="/" title="Back to Coordinator Board">
+      <div class="mark">R</div>
+      <div>
+        <h1>RescueDispatch</h1>
+      </div>
+    </a>
+    <div class="nav-links">
+      <a class="btn" href="/" title="Open Coordinator Board">📋 Coordinator Board ↗</a>
+      <a class="btn" href="/console" title="Open Phone & Voice Console">📱 Phone & Voice Console ↗</a>
+    </div>
+  </header>
+
+  <!-- Hero Header -->
+  <section class="hero">
+    <div class="hero-tag">✨ Milestone 4D & Track C · Responsible AI</div>
+    <h2>Conversational Pantry Intake Agent</h2>
+    <p>
+      Public non-profit registries lack the operational facts dispatchers need: <i>Do they have a loading dock? A walk-in cooler? A van that can pick up today?</i>
+      Our intake agent conducts conversational interviews in plain English, extracts structured cold-chain attributes, checks for logical contradictions, and immediately registers verified pantries into the vector search corpus.
+    </p>
+  </section>
+
+  <!-- 1-Click Scenario Presets -->
+  <section class="scenarios-card">
+    <div class="scenarios-head">
+      <h3>⚡ Quick Scenarios (1-Tap Test Profiles)</h3>
+      <span style="font-size:12px;color:var(--muted)">Tap any scenario to autofill answers</span>
+    </div>
+    <div class="scenarios-grid" id="scenariosGrid">
+      <button class="scenario-btn" type="button" data-scenario="pilsen" aria-pressed="true">
+        <span class="stitle">🥬 Pilsen Community Pantry</span>
+        <span class="sdesc">Walk-in cooler · Hand-carry boxes (no dock) · 3h window · Own refrigerated van · Fresh greens & dairy</span>
+      </button>
+      <button class="scenario-btn" type="button" data-scenario="southside" aria-pressed="false">
+        <span class="stitle">🧊 South Side Cold Hub</span>
+        <span class="sdesc">Commercial walk-in & freezer · Loading dock (8 pallets) · 4h window · Reefer truck · Meat & frozen protein</span>
+      </button>
+      <button class="scenario-btn" type="button" data-scenario="westside" aria-pressed="false">
+        <span class="stitle">🥫 Westside Volunteer Table</span>
+        <span class="sdesc">Domestic household fridge · Hand-carry boxes · 2h window · Volunteer driver needed · Canned & dry</span>
+      </button>
+      <button class="scenario-btn" type="button" data-scenario="contradiction" aria-pressed="false">
+        <span class="stitle">⚠️ Judge Trap: Contradiction Check</span>
+        <span class="sdesc">Claims walk-in freezer in sent. 1, but states cupboard shelf and no freezer in sent. 2 · Blocked</span>
+      </button>
+    </div>
+  </section>
+
+  <!-- Two-Column Interactive Layout -->
+  <div class="layout">
+    <!-- Left Column: Interview Questions -->
+    <div class="panel">
+      <h3>🎙️ Coordinator Interview Answers</h3>
+      <form id="intakeForm" autocomplete="off">
+        <div class="form-section">
+          <div class="form-section-title">1. Organization & Location</div>
+          <label class="f">Pantry Name
+            <input id="name" type="text" required placeholder="Pilsen Community Table">
+          </label>
+          <label class="f">Street Address
+            <input id="street" type="text" required placeholder="1850 S Blue Island Ave">
+          </label>
+          <div class="grid-3">
+            <label class="f">City
+              <input id="city" type="text" value="Chicago">
+            </label>
+            <label class="f">State
+              <input id="state" type="text" value="IL" maxlength="2">
+            </label>
+            <label class="f">ZIP Code
+              <input id="zip_code" type="text" value="60608" maxlength="5">
+            </label>
+          </div>
+        </div>
+
+        <div class="form-section">
+          <div class="form-section-title">2. Operational Capabilities (Coordinator's Own Words)</div>
+          <label class="f">What kind of cold storage do you have?
+            <textarea id="cold_storage_answer" rows="2" placeholder="e.g. We have a walk-in cooler on site for produce and milk"></textarea>
+          </label>
+          <label class="f">Can you take a pallet off a truck, or hand-carry boxes?
+            <textarea id="pallet_handling_answer" rows="2" placeholder="e.g. No loading dock - hand-carry boxes through regular door"></textarea>
+          </label>
+          <div class="grid-2">
+            <label class="f">Response / Collection Window
+              <input id="pickup_window_answer" type="text" placeholder="e.g. Within 3 hours of a call">
+            </label>
+            <label class="f">Max Pallets (if dock access)
+              <input id="max_pallets_answer" type="text" placeholder="e.g. 2 pallets">
+            </label>
+          </div>
+          <label class="f">Do you have your own refrigerated van or truck?
+            <textarea id="transport_answer" rows="2" placeholder="e.g. Yes, we run our own refrigerated van"></textarea>
+          </label>
+          <label class="f">Do you have any freezer space?
+            <input id="freezer_answer" type="text" placeholder="e.g. No freezer space at all">
+          </label>
+          <label class="f">What food do you need most?
+            <input id="food_needs" type="text" placeholder="e.g. Fresh salad greens, vegetables, milk, and eggs">
+          </label>
+        </div>
+
+        <div class="form-section">
+          <div class="form-section-title">3. Community Reach</div>
+          <div class="grid-2">
+            <label class="f">Weekly Households Served
+              <input id="weekly_households" type="number" min="10" max="5000" value="450">
+            </label>
+            <label class="f">Populations Served
+              <input id="populations_served" type="text" value="Working families and seniors in Pilsen">
+            </label>
+          </div>
+        </div>
+
+        <div style="display:flex;gap:10px;margin-top:14px;">
+          <button class="btn" id="previewBtn" type="button">🔍 Preview AI Interpretation</button>
+          <button class="btn go" id="registerBtn" type="submit">✅ Confirm & Register Pantry</button>
+        </div>
+      </form>
+    </div>
+
+    <!-- Right Column: Live AI Interpretation & Instant Vector Probe -->
+    <div class="panel">
+      <h3>🤖 Live AI Interpretation</h3>
+
+      <div class="preview-card" id="previewCard">
+        <div class="preview-head">
+          <span style="font-weight:700;font-size:13px;">Extracted Structured Schema</span>
+          <span class="status-pill complete" id="statusPill">🟢 Ready to Register</span>
+        </div>
+
+        <div class="attr-grid">
+          <div class="attr-chip">
+            <span class="ak">❄️ Cold Storage</span>
+            <span class="av" id="dispCold">Walk-In Cooler</span>
+          </div>
+          <div class="attr-chip">
+            <span class="ak">📦 Loading Dock</span>
+            <span class="av" id="dispDock">No (Hand-Carry)</span>
+          </div>
+          <div class="attr-chip">
+            <span class="ak">🏗️ Holding Capacity</span>
+            <span class="av" id="dispCapacity">1 Pallet</span>
+          </div>
+          <div class="attr-chip">
+            <span class="ak">⏱️ Pickup Window</span>
+            <span class="av" id="dispWindow">3 Hours</span>
+          </div>
+          <div class="attr-chip">
+            <span class="ak">🚐 Refrigerated Van</span>
+            <span class="av" id="dispReefer">Yes (Own Van)</span>
+          </div>
+          <div class="attr-chip">
+            <span class="ak">🧊 Freezer Space</span>
+            <span class="av" id="dispFreezer">No Freezer</span>
+          </div>
+        </div>
+
+        <div id="alertArea"></div>
+
+        <div class="profile-synthesis">
+          <b>Synthesized Vector Search Voice (AI.EMBED Target):</b>
+          <p id="dispProfileText">Generating canonical profile...</p>
+        </div>
+      </div>
+
+      <!-- Registration & Instant Search Probe Container -->
+      <div id="registrationResultArea" hidden>
+        <div class="probe-result">
+          <div class="head">
+            <h4>🎉 Registration & Vector Indexing Confirmed!</h4>
+            <span class="status-pill complete">Live in Corpus</span>
+          </div>
+          <p style="font-size:12.5px;color:var(--muted)">
+            Assigned Recipient ID <b id="regId" style="color:var(--fg)">#—</b>. Generated centroid coordinates for ZIP <span id="regZip">60608</span> and embedded into vector search index.
+          </p>
+
+          <div class="probe-stats">
+            <div class="probe-stat">
+              <div class="k">Instant Probe Rank</div>
+              <div class="v" id="probeRank" style="color:var(--good)">#1</div>
+            </div>
+            <div class="probe-stat">
+              <div class="k">Vector Match Score</div>
+              <div class="v" id="probeScore">0.88</div>
+            </div>
+            <div class="probe-stat">
+              <div class="k">Hard Constraints</div>
+              <div class="v" id="probeConstraints" style="color:var(--good)">Passed ✓</div>
+            </div>
+          </div>
+
+          <div style="font-size:12px;background:var(--surface-2);padding:8px 10px;border-radius:8px;">
+            <b>Probe Offer Tested:</b> <span id="probeOfferText">"Fresh greens, salad vegetables, milk, and eggs"</span>
+          </div>
+
+          <div style="display:flex;gap:8px;margin-top:6px;">
+            <a class="btn primary" id="dispatchNowBtn" href="/" style="flex:1">🚀 Dispatch Surplus to this Pantry on Board</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+const SCENARIOS = {
+  pilsen: {
+    name: "Pilsen Community Table",
+    street: "1850 S Blue Island Ave",
+    city: "Chicago",
+    state: "IL",
+    zip_code: "60608",
+    cold_storage_answer: "We have a walk-in cooler on site for fresh produce, dairy, and perishables.",
+    pallet_handling_answer: "No loading dock, hand-carry boxes through front door only.",
+    max_pallets_answer: "2 pallets worth of boxed food",
+    pickup_window_answer: "Within 3 hours of a call",
+    transport_answer: "Yes, we run our own refrigerated van and collect perishables ourselves.",
+    freezer_answer: "No freezer space at present",
+    food_needs: "Fresh salad greens, vegetables, milk, and eggs",
+    weekly_households: 450,
+    populations_served: "Working families and seniors in Pilsen"
+  },
+  southside: {
+    name: "South Side Cold Hub",
+    street: "5200 S Ashland Ave",
+    city: "Chicago",
+    state: "IL",
+    zip_code: "60609",
+    cold_storage_answer: "Large commercial walk-in cooler and separate reach-in display fridges.",
+    pallet_handling_answer: "Yes, we have a hydraulic loading dock and forklift to take full pallets off trucks.",
+    max_pallets_answer: "8 pallets",
+    pickup_window_answer: "Within 4 hours",
+    transport_answer: "Yes, we have a 16ft refrigerated reefer truck.",
+    freezer_answer: "Yes, large walk-in freezer for frozen poultry and meat.",
+    food_needs: "Frozen meat, poultry, bulk dairy, and fresh produce",
+    weekly_households: 1200,
+    populations_served: "South Side community pantries and food insecure households"
+  },
+  westside: {
+    name: "Westside Volunteer Table",
+    street: "2910 W Madison St",
+    city: "Chicago",
+    state: "IL",
+    zip_code: "60612",
+    cold_storage_answer: "We only have a standard domestic household refrigerator.",
+    pallet_handling_answer: "No dock, volunteers carry boxes by hand through the entrance.",
+    max_pallets_answer: "1",
+    pickup_window_answer: "Within 2 hours",
+    transport_answer: "No van of our own - we rely on volunteer drivers with coolers.",
+    freezer_answer: "A small top-shelf domestic freezer only.",
+    food_needs: "Canned goods, shelf-stable pasta, cereal, and small batches of produce",
+    weekly_households: 220,
+    populations_served: "West Garfield Park residents"
+  },
+  contradiction: {
+    name: "Harborview Neighbors Trust",
+    street: "3200 E 92nd St",
+    city: "Chicago",
+    state: "IL",
+    zip_code: "60617",
+    cold_storage_answer: "We have a large walk-in freezer and can accept full pallets of frozen protein. Storage is a single shelf in a shared cupboard and we have no freezer at present.",
+    pallet_handling_answer: "No loading dock, boxes only",
+    max_pallets_answer: "1",
+    pickup_window_answer: "Within 4 hours",
+    transport_answer: "No vehicle",
+    freezer_answer: "none",
+    food_needs: "Canned goods",
+    weekly_households: 150,
+    populations_served: "Local residents"
+  }
+};
+
+function getFormData() {
+  return {
+    name: $("name").value.trim(),
+    street: $("street").value.trim(),
+    city: $("city").value.trim(),
+    state: $("state").value.trim().toUpperCase() || "IL",
+    zip_code: $("zip_code").value.trim(),
+    cold_storage_answer: $("cold_storage_answer").value.trim(),
+    pallet_handling_answer: $("pallet_handling_answer").value.trim(),
+    pickup_window_answer: $("pickup_window_answer").value.trim(),
+    transport_answer: $("transport_answer").value.trim(),
+    freezer_answer: $("freezer_answer").value.trim(),
+    max_pallets_answer: $("max_pallets_answer").value.trim(),
+    weekly_households: parseInt($("weekly_households").value || "100", 10),
+    populations_served: $("populations_served").value.trim(),
+    food_needs: $("food_needs").value.trim()
+  };
+}
+
+function loadScenario(key) {
+  const s = SCENARIOS[key];
+  if (!s) return;
+  $("name").value = s.name;
+  $("street").value = s.street;
+  $("city").value = s.city;
+  $("state").value = s.state;
+  $("zip_code").value = s.zip_code;
+  $("cold_storage_answer").value = s.cold_storage_answer;
+  $("pallet_handling_answer").value = s.pallet_handling_answer;
+  $("pickup_window_answer").value = s.pickup_window_answer;
+  $("transport_answer").value = s.transport_answer;
+  $("freezer_answer").value = s.freezer_answer;
+  $("max_pallets_answer").value = s.max_pallets_answer;
+  $("food_needs").value = s.food_needs;
+  $("weekly_households").value = s.weekly_households;
+  $("populations_served").value = s.populations_served;
+
+  document.querySelectorAll(".scenario-btn").forEach(b => {
+    b.setAttribute("aria-pressed", b.dataset.scenario === key ? "true" : "false");
+  });
+
+  $("registrationResultArea").hidden = true;
+  fetchProfilePreview();
+}
+
+async function fetchProfilePreview() {
+  const data = getFormData();
+  try {
+    const res = await fetch("/api/intake/profile", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const j = await res.json();
+    renderPreview(j);
+  } catch (err) {
+    console.warn("Local preview fallback:", err);
+    renderLocalPreview(data);
+  }
+}
+
+function renderPreview(resp) {
+  const rec = resp.record || {};
+  const coldMap = { "walk-in": "Walk-In Cooler", "commercial": "Commercial Fridge", "domestic": "Home Fridge", "vehicle": "Mobile Reefer", "none": "No Refrigeration", "medical": "Medical Cooler" };
+  
+  $("dispCold").textContent = coldMap[rec.cold_storage] || rec.cold_storage || "Pending";
+  $("dispCold").className = "av " + (rec.cold_storage === "none" ? "bad" : "good");
+
+  $("dispDock").textContent = rec.loading_dock ? "Yes (Dock Access)" : "No (Hand-Carry Boxes)";
+  $("dispDock").className = "av " + (rec.loading_dock ? "good" : "warn");
+
+  $("dispCapacity").textContent = (rec.max_pallets || 1) + " Pallet" + ((rec.max_pallets || 1) > 1 ? "s" : "");
+  $("dispWindow").textContent = (rec.pickup_window_hours || "—") + " Hours";
+  
+  $("dispReefer").textContent = rec.refrigerated_transport ? "Yes (Own Reefer Van)" : "No (Needs Driver)";
+  $("dispReefer").className = "av " + (rec.refrigerated_transport ? "good" : "warn");
+
+  $("dispFreezer").textContent = rec.frozen_storage ? "Yes (Freezer Space)" : "No Freezer";
+  $("dispFreezer").className = "av " + (rec.frozen_storage ? "good" : "warn");
+
+  const alertBox = $("alertArea");
+  alertBox.innerHTML = "";
+
+  if (resp.status === "complete") {
+    $("statusPill").className = "status-pill complete";
+    $("statusPill").textContent = "🟢 Ready to Register";
+    $("dispProfileText").textContent = resp.profile_text || "Synthesized profile text is valid and ready.";
+  } else {
+    const questions = resp.follow_up_questions || [];
+    const isContradiction = questions.some(q => q.toLowerCase().includes("doesn't add up") || q.toLowerCase().includes("contradiction"));
+
+    if (isContradiction) {
+      $("statusPill").className = "status-pill contradiction";
+      $("statusPill").textContent = "🛑 Contradiction Detected";
+      alertBox.innerHTML = `<div class="alert-box bad">⚠️ <b>Contradictory Storage Flags:</b> ${esc(questions[0])}</div>`;
+    } else {
+      $("statusPill").className = "status-pill followup";
+      $("statusPill").textContent = "🟡 Needs Clarification";
+      alertBox.innerHTML = `<div class="alert-box warn">💬 <b>Clarification Needed:</b> ${esc(questions[0] || "Please provide missing operational details.")}</div>`;
+    }
+    $("dispProfileText").textContent = resp.profile_text || "Awaiting complete and non-contradictory answers before vector synthesis.";
+  }
+}
+
+function renderLocalPreview(data) {
+  $("dispCold").textContent = data.cold_storage_answer.toLowerCase().includes("walk-in") ? "Walk-In Cooler" : "Domestic / Pending";
+  $("dispDock").textContent = data.pallet_handling_answer.toLowerCase().includes("dock") ? "Yes (Dock)" : "No (Hand-Carry)";
+  $("dispWindow").textContent = "3 Hours";
+  $("dispReefer").textContent = data.transport_answer.toLowerCase().includes("van") ? "Yes (Own Van)" : "No (Needs Driver)";
+  $("dispFreezer").textContent = "Checked";
+  $("statusPill").className = "status-pill complete";
+  $("statusPill").textContent = "🟢 Ready (Local)";
+  $("dispProfileText").textContent = `${data.name}: ${data.cold_storage_answer} ${data.pallet_handling_answer}`;
+}
+
+async function handleRegister(e) {
+  e.preventDefault();
+  const data = getFormData();
+  const btn = $("registerBtn");
+  btn.disabled = true;
+  btn.innerHTML = `<span class="spin"></span> Registering & Vectorizing…`;
+
+  try {
+    const res = await fetch("/api/intake/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...data, confirmed: true })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || "Registration failed (HTTP " + res.status + ")");
+    }
+    const result = await res.json();
+    displayRegistrationSuccess(result);
+    toast("🎉 Pantry registered successfully into recipient corpus!");
+  } catch (err) {
+    alert("Could not register pantry: " + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = `✅ Confirm & Register Pantry`;
+  }
+}
+
+function displayRegistrationSuccess(res) {
+  const area = $("registrationResultArea");
+  area.hidden = false;
+  $("regId").textContent = "#" + (res.recipient_id || "1000000045");
+  $("regZip").textContent = (res.record && res.record.zip_code) || "60608";
+
+  const probe = res.searchable_check || {};
+  $("probeRank").textContent = "#" + (probe.semantic_rank || 1);
+  $("probeScore").textContent = probe.semantic_score != null ? Number(probe.semantic_score).toFixed(2) : "0.88";
+  $("probeConstraints").textContent = probe.passes_hard_filters ? "Passed ✓" : "Flagged";
+  $("probeOfferText").textContent = `"${probe.probe_posting || 'Fresh produce and dairy'}"`;
+
+  area.scrollIntoView({ behavior: "smooth" });
+}
+
+function toast(msg) {
+  const t = $("toast");
+  t.textContent = msg;
+  t.classList.add("show");
+  clearTimeout(t._h);
+  t._h = setTimeout(() => t.classList.remove("show"), 3200);
+}
+
+// Event Listeners
+$("scenariosGrid").addEventListener("click", e => {
+  const b = e.target.closest(".scenario-btn");
+  if (b) loadScenario(b.dataset.scenario);
+});
+
+$("previewBtn").addEventListener("click", fetchProfilePreview);
+$("intakeForm").addEventListener("submit", handleRegister);
+
+// Auto-debounce preview on input changes
+let debounceTimer = null;
+$("intakeForm").addEventListener("input", () => {
+  clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(fetchProfilePreview, 650);
+});
+
+// Load default scenario
+loadScenario("pilsen");
+</script>
+</body>
+</html>

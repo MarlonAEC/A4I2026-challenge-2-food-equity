@@ -245,6 +245,57 @@ details.skips .sk b { font-weight: 600; }
   .unit { grid-template-columns: 1fr; }
 }
 @media (prefers-reduced-motion: reduce) { .toast { transition: none; } .pin-wrap .ring, .smap .ring { animation: none; opacity: 0.18; transform: none; } }
+
+/* Policy Toggle in Header */
+.policy-seg { background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px; padding: 2px; }
+.policy-seg button { padding: 6px 11px; font-size: 12px; font-weight: 600; border-radius: 8px; border: 0; background: transparent; color: var(--muted); cursor: pointer; }
+.policy-seg button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); }
+
+/* Modal: Live Equity Audit (Milestone 4C) */
+.modal-backdrop {
+  position: fixed; inset: 0; z-index: 1000;
+  background: rgba(11, 15, 13, 0.75); backdrop-filter: blur(6px);
+  display: flex; align-items: center; justify-content: center;
+  padding: 16px; opacity: 0; pointer-events: none; transition: opacity .2s ease;
+}
+.modal-backdrop.open { opacity: 1; pointer-events: auto; }
+.modal-dialog {
+  width: min(740px, 100%); max-height: 90vh; overflow-y: auto;
+  background: var(--surface); color: var(--fg);
+  border: 1px solid var(--line); border-radius: 18px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+  padding: 24px; display: flex; flex-direction: column; gap: 16px;
+  transform: translateY(16px); transition: transform .2s ease;
+}
+.modal-backdrop.open .modal-dialog { transform: translateY(0); }
+.modal-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.modal-header h3 { font-size: 20px; font-weight: 700; letter-spacing: -0.02em; }
+.modal-header p { font-size: 13px; color: var(--muted); margin-top: 3px; }
+.modal-close {
+  background: var(--surface-2); border: 1px solid var(--line); color: var(--muted);
+  width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center;
+  font-size: 14px; cursor: pointer; flex-shrink: 0; border: 1px solid var(--line);
+}
+.modal-close:hover { color: var(--fg); border-color: var(--fg); }
+.audit-kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+@media (max-width: 600px) { .audit-kpis { grid-template-columns: 1fr; } }
+.audit-kpi {
+  background: var(--surface-2); border: 1px solid var(--line); border-radius: 12px;
+  padding: 12px 14px; display: grid; gap: 4px;
+}
+.audit-kpi .k { font-size: 11px; text-transform: uppercase; font-weight: 600; color: var(--muted); }
+.audit-kpi .v { font-family: var(--font-display); font-size: 22px; font-weight: 700; color: var(--fg); }
+.audit-kpi .comp { font-size: 12px; color: var(--muted); }
+.audit-kpi.highlight { border-color: var(--good); background: color-mix(in srgb, var(--good-soft) 25%, var(--surface)); }
+.audit-kpi.highlight .v { color: var(--good); }
+.audit-insight {
+  background: var(--surface-2); border-left: 4px solid var(--donor); border-radius: 4px 10px 10px 4px;
+  padding: 12px 14px; font-size: 13px; line-height: 1.45;
+}
+.audit-insight b { color: var(--fg); }
+.posting-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.posting-table th { text-align: left; padding: 8px 10px; background: var(--surface-2); color: var(--muted); font-size: 11px; text-transform: uppercase; }
+.posting-table td { padding: 9px 10px; border-top: 1px solid var(--line); }
 </style>
 </head>
 <body>
@@ -255,7 +306,11 @@ details.skips .sk b { font-weight: 600; }
       <div class="mark">R</div>
       <h1>RescueDispatch</h1>
     </div>
-    <a class="btn primary" href="#new" id="newBtn">📞 A donor called</a>
+    <div style="display:flex;gap:8px;align-items:center;">
+      <a class="btn" href="/architecture" target="_blank" title="View interactive LikeC4 System Architecture & Data Flows">📐 Architecture ↗</a>
+      <a class="btn" href="/console" title="Open Interactive Recipient Phone Simulator & Voice Broker Console">📱 Phone & Voice Console ↗</a>
+      <a class="btn primary" href="#new" id="newBtn">📞 A donor called</a>
+    </div>
   </header>
 
   <!-- Screen 1: today's board -->
@@ -572,9 +627,14 @@ function checks(m, o) {
   const cold = m.cold_storage !== "none" && (!o.req.requires_frozen || m.frozen_storage);
   const van = !!m.refrigerated_transport;
   const mg = m.margin_hours;
+  const driveMins = m.drive_time_minutes || Math.max(7, Math.round((m.distance_km || 2) * 4));
+  const delayMins = m.traffic_delay_minutes || 0;
+  const trafficCls = delayMins >= 10 ? "bad" : delayMins >= 4 ? "warn" : "good";
+  const trafficLabel = delayMins > 0 ? `🚗 ${driveMins}m drive (+${delayMins}m traffic)` : `🚗 ${driveMins}m drive`;
   return `<span class="chk ${cold ? "good" : "bad"}">❄️ ${cold ? esc(coolerWord(m.cold_storage)) : "No refrigerator"}</span>
     <span class="chk ${van ? "good" : "warn"}">🚐 ${van ? "Own van, collects in " + hrs(m.pickup_window_hours) : "Needs a driver, " + hrs(m.pickup_window_hours) + " to load"}</span>
-    <span class="chk ${mg >= 1 ? "good" : mg >= 0 ? "warn" : "bad"}">⏱️ ${mg >= 0 ? hrs(mg) + " to spare" : "Too slow by " + hrs(-mg)}</span>`;
+    <span class="chk ${mg >= 1 ? "good" : mg >= 0 ? "warn" : "bad"}">⏱️ ${mg >= 0 ? hrs(mg) + " to spare" : "Too slow by " + hrs(-mg)}</span>
+    <span class="chk ${trafficCls}" title="Live City of Chicago Traffic Tracker">🚦 ${trafficLabel}</span>`;
 }
 function driverText(o, top) {
   return `Pickup needed: ${o.req.posting_text}. From ${o.donor || "the donor"} to ${nice(top.name)}, ${nice(top.street)} (${top.distance_km} km).${o.req.requires_cold_storage ? " Must stay cold." : ""} Needs to be there by ${fmtT(o.deadlineAt)}. Who can take it? Reply with your name.`;
@@ -627,6 +687,7 @@ async function renderOffer(id) {
       <h3>${esc(nice(top.name))}</h3>
       <div class="addr">${esc(nice(top.street))} · <b class="num">${top.distance_km} km</b> · <a href="${routeUrl}" target="_blank" rel="noopener">Route ↗</a></div>
       <div class="checks">${checks(top, o)}</div>
+      ${top.traffic_context && top.traffic_context.data_source ? `<div class="traffic-bar" style="font-size:12px;color:var(--muted);margin-top:6px;display:flex;align-items:center;gap:6px;background:var(--surface-2);padding:6px 10px;border-radius:8px;">🚗 <b>Chicago Traffic:</b> ${(top.traffic_congestion_level || 'light').toUpperCase()} · ~${top.drive_time_minutes || 10} min transit (+${top.traffic_delay_minutes || 0}m delay) · <small style="opacity:0.85">${esc(top.traffic_context.data_source)}</small></div>` : ""}
       <div class="feeds">Who it feeds: <b>${top.equity_context.poverty_rate}%</b> in poverty · <b>${top.equity_context.pct_no_vehicle}%</b> no car${esc(before(list, o, top.name))}</div>
       <details class="msg"><summary><span>📱 Text message to send to the pantry</span><button class="copy" type="button" data-copy="draft">Copy</button></summary><pre id="draft">${esc(top.draft_message)}</pre></details>
       ${needsDriver ? `<details class="msg"><summary><span>🚗 Text message to send to the drivers</span><button class="copy" type="button" data-copy="driverDraft">Copy</button></summary><pre id="driverDraft">${esc(driverText(o, top))}</pre></details>` : ""}
@@ -738,7 +799,7 @@ function svgMap(d) {
   box.innerHTML = `<svg class="smap" viewBox="0 0 ${W} ${H}" role="img" aria-label="Map of the pickup, the pantry that can take it, backups and skipped pantries">${s}</svg>`;
 }
 function drawMap(d) {
-  if (standalone || !window.L) { if (map) { map.remove(); map = null; } svgMap(d); return; }
+  if (!window.L) { if (map) { map.remove(); map = null; } svgMap(d); return; }
   initMap();
   setTimeout(() => map && map.invalidateSize(), 60);
   pinsLayer.clearLayers();
@@ -791,7 +852,19 @@ $("brand").addEventListener("click", toBoard);
 $("brand").addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toBoard(); } });
 window.addEventListener("hashchange", render);
 (async () => {
-  try { const res = await fetch("/healthz", { cache: "no-store" }); const j = await res.json(); standalone = !(res.ok && j && j.status === "ok"); } catch { standalone = true; }
+  try {
+    let res = await fetch("/api/health", { cache: "no-store" }).catch(() => null);
+    if (!res || !res.ok) res = await fetch("/health", { cache: "no-store" }).catch(() => null);
+    if (!res || !res.ok) res = await fetch("/healthz", { cache: "no-store" }).catch(() => null);
+    if (res && res.ok) {
+      const j = await res.json().catch(() => null);
+      standalone = !(j && j.status === "ok");
+    } else {
+      standalone = false;
+    }
+  } catch {
+    standalone = false;
+  }
   await seedIfEmpty();
   render();
 })();

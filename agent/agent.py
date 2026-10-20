@@ -17,9 +17,12 @@ except ImportError:
 from .intake import intake_agent
 from .prompt import SYSTEM_INSTRUCTION
 from .tools import (
+    calculate_transit_time_with_traffic,
+    check_food_recalls,
     check_shelf_life_clock,
     dispatch_pickup_and_fallback,
     find_and_rank_recipients,
+    get_chicago_traffic_congestion,
     run_equity_audit_across_postings,
 )
 
@@ -27,6 +30,9 @@ tools_list = [
     check_shelf_life_clock,
     find_and_rank_recipients,
     dispatch_pickup_and_fallback,
+    check_food_recalls,
+    get_chicago_traffic_congestion,
+    calculate_transit_time_with_traffic,
     run_equity_audit_across_postings,
 ]
 

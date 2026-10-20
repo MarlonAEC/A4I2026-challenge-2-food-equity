@@ -385,6 +385,8 @@ label.f input, label.f textarea { width: 100%; font: inherit; font-size: 13.5px;
       <span class="offer" id="offerSummary"></span>
     </div>
     <div class="chips">
+      <a class="chip" href="/" style="text-decoration:none;color:inherit;" title="Switch to Coordinator Board">📋 <b>Coordinator Board ↗</b></a>
+      <a class="chip" href="/architecture" target="_blank" style="text-decoration:none;color:inherit;" title="View interactive LikeC4 System Architecture & Data Flows">📐 <b>Architecture ↗</b></a>
       <span class="chip">📍 <b>Chicago</b> · 183 pantries</span>
       <span class="chip" id="srcChip">🧪 <b>Demo data</b></span>
       <button class="chip voice-chip" id="voiceToggleBtn" type="button" title="Voice Broker Assistant">🎙️ <b>Voice Broker</b></button>
@@ -640,10 +642,15 @@ function lights(m, d) {
   const van = !!m.refrigerated_transport;
   const mg = m.margin_hours;
   const tCls = mg >= 1 ? "good" : mg >= 0 ? "warn" : "bad";
+  const driveMins = m.drive_time_minutes || Math.max(8, Math.round((m.distance_km || 2) * 4.5));
+  const delayMins = m.traffic_delay_minutes || 0;
+  const trafCls = delayMins >= 10 ? "bad" : delayMins >= 4 ? "warn" : "good";
+  const trafLabel = delayMins > 0 ? `${driveMins}m transit (+${delayMins}m traffic)` : `${driveMins}m transit (flow clear)`;
   return `
     <div class="light ${cold ? "good" : "bad"}"><div class="ico">❄️</div><div><div class="q">Can they keep it cold?</div><div class="a">${cold ? "Yes, " + esc(m.cold_storage) + " cooler" : "No refrigerator"}</div></div></div>
     <div class="light ${van ? "good" : "warn"}"><div class="ico">🚐</div><div><div class="q">Who will pick it up?</div><div class="a">${van ? "Their own van, within " + hrs(m.pickup_window_hours) : "Needs a volunteer driver"}</div></div></div>
     <div class="light ${tCls}"><div class="ico">⏱️</div><div><div class="q">Will it get there in time?</div><div class="a">${mg >= 0 ? hrs(mg) + " to spare" : "Too slow by " + hrs(-mg)}</div></div></div>
+    <div class="light ${trafCls}"><div class="ico">🚗</div><div><div class="q">Live Chicago Traffic</div><div class="a">${trafLabel}</div></div></div>
     <div class="light info"><div class="ico">📍</div><div><div class="q">Who it feeds</div><div class="a num">${m.equity_context.poverty_rate}% in poverty · ${m.equity_context.pct_no_vehicle}% no car</div></div></div>`;
 }
 function tabBar(d) {
@@ -671,7 +678,12 @@ function driverCardHtml(top) {
   const isEnroute = driverStatus === "enroute";
   const tagClass = isEnroute ? "enroute" : "ready";
   const statusLabel = isEnroute ? "🟢 Van Dispatched · En Route" : "🔵 Van Verified · Ready to Roll";
-  const etaText = isEnroute ? "ETA ~14 mins" : `Transit: ~${Math.max(8, Math.round(top.distance_km * 4.5))} mins (${top.distance_km} km)`;
+  const driveMins = top.drive_time_minutes || Math.max(8, Math.round((top.distance_km || 2) * 4.5));
+  const delayMins = top.traffic_delay_minutes || 0;
+  const trafficNotice = delayMins > 0 ? ` (+${delayMins}m traffic)` : ` (traffic clear)`;
+  const etaText = isEnroute ? `ETA ~${driveMins} mins` : `Transit: ~${driveMins} mins (${top.distance_km} km)${trafficNotice}`;
+  const trafficSrc = (top.traffic_context && top.traffic_context.data_source) || "City of Chicago Live Traffic Tracker";
+  const congestionLvl = (top.traffic_congestion_level || "light").toUpperCase();
   return `
     <div class="driver-card" id="driverCard">
       <div class="driver-top">
@@ -680,6 +692,9 @@ function driverCardHtml(top) {
       </div>
       <div class="driver-info">
         🚐 <b>${esc(top.name)}'s Refrigerated Fleet</b> · Dock (Downtown) ➔ ${esc(top.street)}
+      </div>
+      <div class="driver-info" style="font-size:11px;color:var(--muted);margin-top:4px;">
+        🚦 Chicago Traffic: <b>${congestionLvl}</b> · ${esc(trafficSrc)}
       </div>
     </div>`;
 }
