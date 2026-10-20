@@ -15,7 +15,7 @@
 | :--- | :--- | :--- | :--- |
 | **1. Data & Vector Search Lead** | `@beshermahrouka` | `data` | `notebooks/`, `scripts/load.sh`, `sql/` |
 | **2. ADK Agent & MCP Lead** | `@TODO_Name_2` | `agent` | `agent/agent.py`, `agent/prompt.py` |
-| **3. Custom "Uber" Tools Lead** | `@TODO_Name_3` | `tools` | `agent/tools.py` |
+| **3. Custom "Uber" Tools Lead** | `Andrea ✅` | `tools` | `agent/tools.py` |
 | **4. Frontend & Map UI Lead** | `@TODO_Name_4` | `frontend` | `app/` |
 | **5. Cloud Run, QA & Pitch Lead** | `@MarlonAEC` | `deploy-story` | `Dockerfile`, `deploy.sh`, `scripts/verify_traps.py`, `docs/` |
 
@@ -86,26 +86,26 @@
 
 ---
 
-## 🛠️ Lane 3: Custom "Uber Logistics" Tools (`branch: tools`) — `@TODO_Name_3`
+## 🛠️ Lane 3: Custom "Uber Logistics" Tools (`branch: tools`) — `Andrea ✅`
 
 ### Milestone 3A: Shelf-Life Clock Tool (Target: 1:00)
-- [ ] Build `check_shelf_life_clock(food_description, donor_deadline_hours)` in `agent/tools.py`:
-  - [ ] Searches `a4i_food.shelf_life` via vector/text search (handles `"Spinach"` living under `"Lettuce"` subtitle!).
-  - [ ] Safely handles sentinel strings (`indefinitely`, `not recommended`, `package use-by date`, `when ripe`) so they never become `0` hours.
-  - [ ] Returns `effective_window_hours = min(donor_deadline_hours, usda_hours)`.
+- [x] Build `check_shelf_life_clock(food_description, donor_deadline_hours)` in `agent/tools.py`:
+  - [x] Searches `a4i_food.shelf_life` via vector/text search (handles `"Spinach"` living under `"Lettuce"` subtitle!).
+  - [x] Safely handles sentinel strings (`indefinitely`, `not recommended`, `package use-by date`, `when ripe`) so they never become `0` hours.
+  - [x] Returns `effective_window_hours = min(donor_deadline_hours, usda_hours)`.
 
 ### Milestone 3B: Smart Match, Filter & Tie-Breaker Tool (Target: 1:30)
-- [ ] Build `find_and_rank_recipients(...)` in `agent/tools.py`:
-  - [ ] Calls **Lane 1's** `VECTOR_SEARCH` SQL to get top 15 semantic candidates.
-  - [ ] **Hard Filter 1 (Cold Chain):** If perishable/frozen, reject `cold_storage == 'none'` (catches `Greenline Community Pantry` decoy and saves it in `rejected_decoys` list so the UI/agent can show *why* it was blocked!).
-  - [ ] **Hard Filter 2 (Contradiction Check):** Flag/reject `Harborview Neighbors Trust` where `profile_text` contradicts `cold_storage`.
-  - [ ] **Hard Filter 3 (Clock & Volume):** Check `pickup_window_hours <= effective_window_hours` and `max_pallets` (or propose a multi-pantry split if load is huge).
-  - [ ] **Defensible Tie-Breaker:** Rank valid candidates using semantic score + distance + `tract_demographics` (`poverty_rate` & `pct_no_vehicle`) so `Cedar Street` vs. `Maple Street` is broken on real neighborhood need.
+- [x] Build `find_and_rank_recipients(...)` in `agent/tools.py`:
+  - [x] Calls **Lane 1's** `VECTOR_SEARCH` SQL to get top 15 semantic candidates.
+  - [x] **Hard Filter 1 (Cold Chain):** If perishable/frozen, reject `cold_storage == 'none'` (catches `Greenline Community Pantry` decoy and saves it in `rejected_decoys` list so the UI/agent can show *why* it was blocked!).
+  - [x] **Hard Filter 2 (Contradiction Check):** Flag/reject `Harborview Neighbors Trust` where `profile_text` contradicts `cold_storage`.
+  - [x] **Hard Filter 3 (Clock & Volume):** Check `pickup_window_hours <= effective_window_hours` and `max_pallets` (or propose a multi-pantry split if load is huge).
+  - [x] **Defensible Tie-Breaker:** Rank valid candidates using semantic score + distance + `tract_demographics` (`poverty_rate` & `pct_no_vehicle`) so `Cedar Street` vs. `Maple Street` is broken on real neighborhood need.
 
 ### Milestone 3C: Cascading Uber Dispatch Tool (Target: 2:00)
-- [ ] Build `dispatch_pickup_and_fallback(posting_id, declined_recipient_ids=[])` in `agent/tools.py`:
-  - [ ] Formats the ready-to-send SMS/email dispatch card for the highest-ranked non-declined recipient.
-  - [ ] Supports instant re-dispatch to Backup #2 / #3 when #1 declines.
+- [x] Build `dispatch_pickup_and_fallback(posting_id, declined_recipient_ids=[])` in `agent/tools.py`:
+  - [x] Formats the ready-to-send SMS/email dispatch card for the highest-ranked non-declined recipient.
+  - [x] Supports instant re-dispatch to Backup #2 / #3 when #1 declines.
 
 ---
 
