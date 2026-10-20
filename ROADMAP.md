@@ -55,9 +55,9 @@
 - [x] Save numbers in `docs/equity_audit.md` and hand off to **Lane 5** for the slide deck.
 
 ### Milestone 1D: "Rescue Deserts" & Spatial Equity Analysis (Going Further — 25% Rigor Score)
-- [ ] Cross-reference census tracts in Cook County with matched pantry locations to identify **"Rescue Deserts"** (tracts with `poverty_rate > 30%` and `pct_no_vehicle > 40%` that have 0 verified cold-storage recipients within a 5 km radius).
-- [ ] Document the structural infrastructure deficit: articulate for judges why food rescue algorithms cannot solve food access without municipal investments in cold chain / walk-in coolers.
-- [ ] Export spatial equity metrics into `docs/equity_audit.md` for Lane 4 (map layer) and Lane 5 (pitch deck).
+- [x] Cross-reference census tracts in Cook County with matched pantry locations to identify **"Rescue Deserts"** (tracts with `poverty_rate > 30%` and `pct_no_vehicle > 40%` that have 0 verified cold-storage recipients within a 5 km radius).
+- [x] Document the structural infrastructure deficit: articulate for judges why food rescue algorithms cannot solve food access without municipal investments in cold chain / walk-in coolers.
+- [x] Export spatial equity metrics into `docs/equity_audit.md` for Lane 4 (map layer) and Lane 5 (pitch deck).
 
 ---
 
