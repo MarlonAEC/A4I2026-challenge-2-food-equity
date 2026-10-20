@@ -19,4 +19,6 @@ jobs:
           python-version: "3.11"
 
       - name: Run Lane 5 Judge-Trap Verification Suite
+        env:
+          DISABLE_LIVE_BQ: "1"
         run: python3 scripts/verify_traps.py
