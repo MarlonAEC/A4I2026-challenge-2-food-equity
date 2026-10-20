@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>RescueDispatch</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230f1613'/%3E%3Ccircle cx='32' cy='32' r='14' fill='%2315803d'/%3E%3Ccircle cx='32' cy='32' r='6' fill='%23ffffff'/%3E%3C/svg%3E">
@@ -12,8 +12,8 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
 <style>
-/* Layout: Uber-style dispatch console. Left rail = the offer. Centre = map hero. Right = tabbed ride-style cards.
-   Built on docs/frontend_plan.md Contract 1 (/api/match), 2 (/api/brief) and 3 (/api/equity_audit). */
+/* Layout: the coordinator's board of offers in flight → one offer at a time (cards left, map right).
+   Built on Contract 1 (POST /api/match); everything the backend doesn't hold yet is a mock in `api` below. */
 :root {
   --bg: #f3f5f2;
   --surface: #ffffff;
@@ -66,7 +66,7 @@ html, body { height: 100%; margin: 0; }
 body {
   background: var(--bg); color: var(--fg);
   font-family: var(--font-body); font-size: 14px; line-height: 1.45;
-  padding-block: 12px;
+  padding-block: 10px;
   padding-left: max(16px, env(safe-area-inset-left, 0px));
   padding-right: max(16px, env(safe-area-inset-right, 0px));
   box-sizing: border-box;
@@ -74,61 +74,123 @@ body {
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 h1, h2, h3 { margin: 0; font-family: var(--font-display); text-wrap: balance; }
+p { margin: 0; }
 button { font: inherit; cursor: pointer; }
-button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visible { outline: 2px solid var(--donor); outline-offset: 2px; }
+button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visible, summary:focus-visible { outline: 2px solid var(--donor); outline-offset: 2px; }
 .num { font-variant-numeric: tabular-nums; }
 
-.app { display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 14px; height: 100%; min-height: 0; }
-header.top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-.summary { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; }
-.summary .offer { font-size: 13px; color: var(--muted); max-width: 46ch; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.summary .offer b { color: var(--fg); font-weight: 600; }
-.brand { cursor: pointer; border-radius: 10px; }
-.summary .offer { cursor: pointer; }
-.summary .offer:hover { color: var(--fg); }
+.app { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 12px; height: 100%; min-height: 0; }
+header.top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.brand { display: flex; align-items: center; gap: 10px; cursor: pointer; border-radius: 10px; }
+.brand .mark { width: 32px; height: 32px; border-radius: 10px; background: var(--accent); color: var(--on-accent); display: grid; place-items: center; font-family: var(--font-display); font-weight: 700; }
+.brand h1 { font-size: 17px; font-weight: 700; letter-spacing: -0.01em; }
+.foot { font-size: 11.5px; color: var(--muted); display: flex; gap: 6px 12px; flex-wrap: wrap; align-items: center; }
+.foot .link { color: var(--muted); background: none; border: 0; padding: 0; text-decoration: underline; font: inherit; cursor: pointer; }
 
-/* Screen 1: the offer (opens here). Screen 2: results, tabs left + map right. */
-.screen-offer { min-height: 0; overflow: auto; display: grid; justify-items: center; align-content: start; padding-top: 2vh; }
-.onboard { width: min(1040px, 100%); display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 14px; align-items: start; }
-.onboard .hero { grid-column: 1 / -1; }
-.onboard .hero h2 { font-size: 26px; font-weight: 700; letter-spacing: -0.02em; }
-.onboard .hero p { margin: 4px 0 0; color: var(--muted); font-size: 14px; }
-.onboard .scenarios { grid-template-columns: 1fr; }
-.onboard .scenario { padding: 14px; }
-.onboard .scenario .t { font-size: 14px; }
-.onboard label.f textarea { font-size: 15px; padding: 12px; }
-.screen-results { display: grid; grid-template-columns: 440px minmax(0, 1fr); gap: 14px; min-height: 0; height: 100%; }
-.brand { display: flex; align-items: center; gap: 10px; }
-.brand .mark { width: 34px; height: 34px; border-radius: 10px; background: var(--accent); color: var(--on-accent); display: grid; place-items: center; font-family: var(--font-display); font-weight: 700; }
-.brand h1 { font-size: 18px; font-weight: 700; letter-spacing: -0.01em; }
-.brand p { margin: 0; color: var(--muted); font-size: 12px; }
-.chips { display: flex; gap: 8px; flex-wrap: wrap; }
-.chip { font-size: 12px; padding: 6px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--muted); display: inline-flex; align-items: center; gap: 6px; }
-.chip b { color: var(--fg); font-weight: 600; }
-.chip.live { border-color: var(--good); color: var(--good); }
-.dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; display: inline-block; }
+.btn { border-radius: 10px; padding: 11px 12px; font-weight: 600; font-size: 13px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); display: inline-flex; align-items: center; justify-content: center; gap: 6px; text-decoration: none; white-space: nowrap; }
+.btn.go { background: var(--good); border-color: var(--good); color: #ffffff; }
+.btn.no { border-color: var(--bad); color: var(--bad); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.btn:hover { filter: brightness(1.06); }
+.btn[disabled] { opacity: 0.6; cursor: wait; }
 
-.rail, .stack { min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 12px; }
-.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; }
-.card h2 { font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
-.card h2 .step { font-size: 11px; color: var(--muted); font-weight: 500; letter-spacing: 0.04em; text-transform: uppercase; }
-.sub { color: var(--muted); font-size: 12px; margin: 2px 0 10px; }
+/* Screen 1: the board */
+.board { min-height: 0; overflow: auto; display: grid; align-content: start; gap: 8px; }
+.board h2 { font-size: 13px; color: var(--muted); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; padding: 4px 2px 0; }
+.row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 14px; align-items: center; text-align: left; width: 100%; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; color: var(--fg); }
+.row:hover { border-color: var(--accent); }
+.row .what { font-weight: 600; font-size: 14px; }
+.row .who { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.row .right { display: grid; justify-items: end; gap: 4px; }
+.lc { font-family: var(--font-display); font-size: 17px; font-weight: 600; white-space: nowrap; }
+.lc.warn { color: var(--warn); } .lc.bad { color: var(--bad); } .lc.done { color: var(--good); font-size: 13px; }
+.stage { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 600; padding: 3px 9px; border-radius: 999px; background: var(--surface-2); color: var(--muted); white-space: nowrap; }
+.stage.matched { background: var(--good-soft); color: var(--good); }
+.stage.sent { background: var(--donor-soft); color: var(--donor); }
+.stage.accepted, .stage.picked_up { background: var(--warn-soft); color: var(--warn); }
+.stage.delivered { background: var(--good-soft); color: var(--good); }
+.stage.nobody { background: var(--bad-soft); color: var(--bad); }
+.ex { font-size: 10.5px; color: var(--muted); border: 1px dashed var(--line); border-radius: 999px; padding: 1px 7px; margin-left: 4px; }
+.empty-board { text-align: center; color: var(--muted); padding: 48px 10px; display: grid; gap: 10px; justify-items: center; }
+.empty-board h2 { font-size: 20px; color: var(--fg); text-transform: none; letter-spacing: 0; }
 
-.scenarios { display: grid; gap: 8px; }
-.scenario { text-align: left; background: var(--surface-2); border: 1px solid transparent; border-radius: 10px; padding: 10px 12px; color: var(--fg); display: grid; gap: 2px; }
-.scenario:hover { border-color: var(--line); }
-.scenario[aria-pressed="true"] { border-color: var(--accent); background: var(--surface); }
-.scenario .t { font-weight: 600; font-size: 13px; }
-.scenario .d { font-size: 11.5px; color: var(--muted); }
-label.f { display: grid; gap: 4px; font-size: 12px; font-weight: 500; color: var(--muted); }
-label.f input, label.f textarea { width: 100%; font: inherit; font-size: 13.5px; color: var(--fg); background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px; padding: 9px 10px; }
+/* Screen 2: a donor called */
+.screen-new { min-height: 0; overflow: auto; display: grid; justify-items: center; align-content: start; }
+.form { width: min(640px, 100%); display: grid; gap: 12px; }
+.form h2 { font-size: 22px; font-weight: 700; letter-spacing: -0.02em; }
+.calls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.call { text-align: left; background: var(--surface-2); border: 1px solid transparent; border-radius: 10px; padding: 10px 12px; color: var(--fg); display: grid; gap: 2px; }
+.call:hover { border-color: var(--line); }
+.call[aria-pressed="true"] { border-color: var(--accent); background: var(--surface); }
+.call .t { font-weight: 600; font-size: 13px; }
+.call .d { font-size: 11.5px; color: var(--muted); }
+label.f, .f { display: grid; gap: 4px; font-size: 12px; font-weight: 500; color: var(--muted); }
+label.f input, label.f textarea { width: 100%; font: inherit; font-size: 14px; color: var(--fg); background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px; padding: 10px 11px; }
 .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.check { display: flex; align-items: center; gap: 8px; font-size: 13px; }
-.check input { width: 16px; height: 16px; accent-color: var(--good); }
-.primary { width: 100%; border: 0; border-radius: 12px; padding: 13px 14px; background: var(--accent); color: var(--on-accent); font-weight: 600; font-size: 14.5px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
-.primary:hover { filter: brightness(1.12); }
-.primary[disabled] { opacity: 0.6; cursor: wait; }
-.form { display: grid; gap: 10px; }
+.seg { display: flex; gap: 4px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px; padding: 3px; }
+.seg button { flex: 1; border: 0; background: transparent; color: var(--muted); border-radius: 8px; padding: 9px 10px; font-size: 13px; font-weight: 600; white-space: nowrap; }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); }
+.unit { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: end; }
+.cold { display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 500; }
+.cold input { width: 18px; height: 18px; accent-color: var(--good); }
+
+/* Screen 3: one offer */
+.screen-offer { display: grid; grid-template-columns: 460px minmax(0, 1fr); gap: 14px; min-height: 0; height: 100%; }
+.stack { min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 12px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; }
+.card h2 { font-size: 14px; font-weight: 600; }
+.card h2 small { font-weight: 500; color: var(--muted); font-size: 12px; margin-left: 6px; }
+.hint { font-size: 12.5px; color: var(--muted); }
+.ohead { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: start; }
+.ohead .what { font-weight: 600; font-size: 15px; }
+.ohead .who { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.ohead .clock { text-align: right; }
+.ohead .clock .v { font-family: var(--font-display); font-size: 26px; font-weight: 600; line-height: 1.05; letter-spacing: -0.01em; white-space: nowrap; }
+.ohead .clock .by { font-size: 11.5px; color: var(--muted); }
+.ohead .clock.warn .v { color: var(--warn); } .ohead .clock.bad .v { color: var(--bad); } .ohead .clock.done .v { color: var(--good); }
+.stageline { display: flex; flex-wrap: wrap; gap: 4px 0; margin-top: 10px; font-size: 11.5px; color: var(--muted); align-items: center; }
+.stageline .s { display: inline-flex; align-items: center; gap: 5px; padding: 3px 8px; border-radius: 999px; }
+.stageline .s.on { background: var(--good-soft); color: var(--good); font-weight: 600; }
+.stageline .s.now { background: var(--accent); color: var(--on-accent); font-weight: 600; }
+.stageline .arrow { color: var(--line); padding: 0 1px; }
+.stageline .note { width: 100%; margin-top: 4px; }
+.match { border: 2px solid var(--good); }
+.match.waiting { border-color: var(--donor); }
+.tag { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--good); }
+.match.waiting .tag { color: var(--donor); }
+.match h3 { font-size: 20px; font-weight: 700; margin-top: 6px; letter-spacing: -0.01em; }
+.addr { color: var(--muted); font-size: 13px; margin-top: 2px; }
+.addr b { color: var(--fg); font-weight: 600; }
+.addr a { color: var(--donor); font-weight: 600; text-decoration: none; }
+.addr a:hover { text-decoration: underline; }
+.checks { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.chk { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; padding: 6px 10px; border-radius: 999px; background: var(--surface-2); }
+.chk.good { background: var(--good-soft); color: var(--good); } .chk.warn { background: var(--warn-soft); color: var(--warn); } .chk.bad { background: var(--bad-soft); color: var(--bad); }
+.feeds { font-size: 12.5px; color: var(--muted); margin-top: 8px; }
+.feeds b { color: var(--fg); font-weight: 600; }
+details.msg { margin-top: 10px; }
+details.msg summary { cursor: pointer; font-size: 12.5px; font-weight: 600; color: var(--donor); list-style: none; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+details.msg summary::-webkit-details-marker { display: none; }
+details.msg pre { margin: 8px 0 0; white-space: pre-wrap; font: inherit; font-size: 13px; background: var(--surface-2); border: 1px dashed var(--line); border-radius: 10px; padding: 10px 12px; }
+.copy { font-size: 11px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); border-radius: 999px; padding: 3px 9px; }
+.actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+.actions.one { grid-template-columns: 1fr; }
+.actions.three { grid-template-columns: 1fr 1fr 1fr; }
+.list .it { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 9px 0; border-top: 1px solid var(--line); }
+.list .it:first-of-type { border-top: 0; }
+.list .n { width: 26px; height: 26px; border-radius: 50%; background: var(--warn-soft); color: var(--warn); display: grid; place-items: center; font-weight: 700; font-size: 12px; }
+.list .t { font-weight: 600; font-size: 13px; }
+.list .d { font-size: 12px; color: var(--muted); }
+.list .w { font-size: 12px; color: var(--muted); text-align: right; white-space: nowrap; }
+.split .it { grid-template-columns: minmax(0, 1fr) auto; }
+details.skips summary { cursor: pointer; font-weight: 600; font-size: 13px; list-style: none; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+details.skips summary::-webkit-details-marker { display: none; }
+details.skips summary .why { font-weight: 500; font-size: 12px; color: var(--muted); text-align: right; }
+details.skips .sk { font-size: 12.5px; padding: 8px 0; border-top: 1px solid var(--line); }
+details.skips .sk:first-of-type { margin-top: 8px; }
+details.skips .sk b { font-weight: 600; }
+.error { border-color: var(--bad); }
+.error b { color: var(--bad); }
 
 .mapwrap { position: relative; min-height: 0; border-radius: var(--radius); overflow: hidden; border: 1px solid var(--line); background: var(--map-bg); min-width: 0; }
 #map { position: absolute; inset: 0; z-index: 1; background: var(--map-bg); }
@@ -161,95 +223,26 @@ label.f input, label.f textarea { width: 100%; font: inherit; font-size: 13.5px;
 .pin-wrap { position: relative; display: grid; place-items: center; }
 .pin-wrap .ring { position: absolute; width: 60px; height: 60px; border-radius: 50%; background: var(--good); opacity: 0.18; animation: pulse 1.8s ease-out infinite; }
 @keyframes pulse { 0% { transform: scale(0.5); opacity: 0.35; } 100% { transform: scale(1.1); opacity: 0; } }
-.legend { position: absolute; left: 12px; bottom: 12px; z-index: 2; display: flex; gap: 10px; flex-wrap: wrap; font-size: 11.5px; background: color-mix(in srgb, var(--surface) 88%, transparent); border: 1px solid var(--line); border-radius: 999px; padding: 6px 10px; backdrop-filter: blur(6px); }
-.legend span { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); }
-.legend i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
-.clock { position: absolute; top: 12px; left: 12px; z-index: 2; background: color-mix(in srgb, var(--surface) 92%, transparent); border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; backdrop-filter: blur(6px); box-shadow: var(--shadow); min-width: 200px; }
-.clock .k { font-size: 11px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
-.clock .v { font-family: var(--font-display); font-size: 28px; font-weight: 600; line-height: 1.1; letter-spacing: -0.01em; }
-.clock .by { font-size: 12px; color: var(--muted); }
-
-.tabs { position: sticky; top: 0; z-index: 2; background: var(--bg); padding-bottom: 6px; }
-.seg { display: flex; gap: 4px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 999px; padding: 4px; overflow-x: auto; scrollbar-width: none; box-shadow: var(--shadow); }
-.tab { flex: 1 0 auto; border: 0; background: transparent; color: var(--muted); border-radius: 999px; padding: 9px 12px; font-size: 13px; font-weight: 600; white-space: nowrap; }
-.tab:hover { color: var(--fg); }
-.tab[aria-selected="true"] { background: var(--accent); color: var(--on-accent); }
-.panel { display: grid; gap: 12px; }
-
-.match { border: 2px solid var(--good); padding: 16px; }
-.match .tag { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--good); }
-.match h3 { font-size: 20px; font-weight: 700; margin-top: 6px; letter-spacing: -0.01em; }
-.addr { color: var(--muted); font-size: 13px; margin-top: 2px; }
-.addr b { color: var(--fg); font-weight: 600; }
-.addr a { color: var(--donor); font-weight: 600; text-decoration: none; }
-.addr a:hover { text-decoration: underline; }
-.lights { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
-.light { display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: center; padding: 9px 10px; border-radius: 10px; background: var(--surface-2); }
-.light .ico { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; font-size: 15px; }
-.light.good .ico { background: var(--good-soft); } .light.warn .ico { background: var(--warn-soft); } .light.bad .ico { background: var(--bad-soft); } .light.info .ico { background: var(--donor-soft); }
-.light .q { font-size: 11px; color: var(--muted); }
-.light .a { font-size: 13px; font-weight: 600; }
-.light.good .a { color: var(--good); } .light.warn .a { color: var(--warn); } .light.bad .a { color: var(--bad); }
-.msg { margin-top: 12px; }
-.msg .k { font-size: 11px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); font-weight: 600; display: flex; justify-content: space-between; align-items: center; }
-.msg pre { margin: 6px 0 0; white-space: pre-wrap; font: inherit; font-size: 13px; background: var(--surface-2); border: 1px dashed var(--line); border-radius: 10px; padding: 10px 12px; }
-.copy { font-size: 11px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); border-radius: 999px; padding: 3px 9px; }
-.actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
-.btn { border-radius: 10px; padding: 11px 12px; font-weight: 600; font-size: 13px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); display: inline-flex; align-items: center; justify-content: center; gap: 6px; text-decoration: none; }
-.btn.go { background: var(--good); border-color: var(--good); color: #ffffff; }
-.btn.no { border-color: var(--bad); color: var(--bad); }
-.btn:hover { filter: brightness(1.05); }
-
-.backup { display: grid; grid-template-columns: 28px 1fr auto; gap: 10px; align-items: center; padding: 10px 0; border-top: 1px solid var(--line); }
-.backup:first-of-type { border-top: 0; }
-.backup .n { width: 28px; height: 28px; border-radius: 50%; background: var(--warn-soft); color: var(--warn); display: grid; place-items: center; font-weight: 700; font-size: 12px; }
-.backup .t { font-weight: 600; font-size: 13px; }
-.backup .d { font-size: 12px; color: var(--muted); }
-.backup .w { font-size: 12px; color: var(--muted); text-align: right; white-space: nowrap; }
-
-.skip { display: grid; grid-template-columns: auto 1fr; gap: 10px; padding: 10px 0; border-top: 1px solid var(--line); }
-.skip:first-of-type { border-top: 0; }
-.skip .x { width: 28px; height: 28px; border-radius: 50%; background: var(--bad-soft); color: var(--bad); display: grid; place-items: center; font-weight: 700; }
-.skip .t { font-weight: 600; font-size: 13px; }
-.skip .d { font-size: 12.5px; }
-.skip .r { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
-
-.ask { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
-.ask button { font-size: 12px; padding: 6px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface-2); color: var(--fg); }
-.ask button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
-.answer { margin-top: 10px; font-size: 13px; background: var(--surface-2); border-radius: 10px; padding: 10px 12px; min-height: 42px; white-space: pre-wrap; }
-.answer .src { display: block; font-size: 11px; color: var(--muted); margin-top: 4px; white-space: normal; }
-
-.honest { font-size: 12px; color: var(--muted); display: grid; gap: 6px; }
-.honest b { color: var(--fg); font-weight: 600; }
-.audit { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 4px; }
-.audit div { background: var(--surface-2); border-radius: 10px; padding: 8px 10px; }
-.audit .k { font-size: 11px; color: var(--muted); }
-.audit .v { font-family: var(--font-display); font-size: 16px; font-weight: 600; }
-.audit .v small { font-size: 11px; color: var(--muted); font-weight: 500; font-family: var(--font-body); }
 
 .toast { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 50; background: var(--accent); color: var(--on-accent); padding: 10px 16px; border-radius: 999px; font-size: 13px; font-weight: 500; box-shadow: var(--shadow); opacity: 0; transition: opacity .2s; pointer-events: none; }
 .toast.show { opacity: 1; }
-.empty { color: var(--muted); font-size: 13px; }
 .spin { display: inline-block; width: 18px; height: 18px; border: 2px solid var(--line); border-top-color: var(--fg); border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: middle; margin-right: 8px; }
 @keyframes spin { to { transform: rotate(360deg); } }
-.error { border-color: var(--bad); }
-.error b { color: var(--bad); }
 
 @media (max-width: 1000px) {
   html, body { height: auto; }
   .app { height: auto; }
-  .screen-results { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(340px, 48vh) auto; height: auto; }
-  .mapwrap { order: -1; min-height: 340px; }
-  .stack { overflow: visible; }
+  .screen-offer { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(300px, 44vh) auto; height: auto; }
+  .mapwrap { order: -1; min-height: 300px; }
+  .stack, .board, .screen-new { overflow: visible; }
 }
-@media (max-width: 760px) {
-  .onboard { grid-template-columns: minmax(0, 1fr); }
-  .onboard .hero h2 { font-size: 22px; }
-  .mapwrap { min-height: 300px; }
-  .lights, .actions, .audit { grid-template-columns: 1fr; }
-  .clock .v { font-size: 22px; }
-  .summary .offer { max-width: 100%; white-space: normal; }
+@media (max-width: 640px) {
+  .calls, .row2, .actions, .actions.three { grid-template-columns: 1fr; }
+  .row { grid-template-columns: 1fr; }
+  .row .right { justify-items: start; grid-auto-flow: column; align-items: center; gap: 10px; }
+  .ohead { grid-template-columns: 1fr; }
+  .ohead .clock { text-align: left; }
+  .unit { grid-template-columns: 1fr; }
 }
 @media (prefers-reduced-motion: reduce) { .toast { transition: none; } .pin-wrap .ring, .smap .ring { animation: none; opacity: 0.18; transform: none; } }
 </style>
@@ -258,125 +251,95 @@ label.f input, label.f textarea { width: 100%; font: inherit; font-size: 13.5px;
 
 <div class="app" id="app">
   <header class="top">
-    <div class="brand" id="brand" role="button" tabindex="0" title="Back to the offer">
+    <div class="brand" id="brand" role="button" tabindex="0" title="Today's board">
       <div class="mark">R</div>
-      <div>
-        <h1>RescueDispatch</h1>
-      </div>
+      <h1>RescueDispatch</h1>
     </div>
-    <div class="summary" id="summary" hidden>
-      <span class="offer" id="offerSummary"></span>
-    </div>
-    <div class="chips">
-      <span class="chip">📍 <b>Chicago</b> · 183 pantries</span>
-      <span class="chip" id="srcChip">🧪 <b>Demo data</b></span>
-    </div>
+    <a class="btn primary" href="#new" id="newBtn">📞 A donor called</a>
   </header>
 
-  <!-- Screen 1: We have extra food -->
-  <section class="screen-offer" id="screenOffer">
-   <div class="onboard">
-    <div class="hero">
-      <h2>We have extra food</h2>
-      <p>Tell us what needs to go and how long it has. We'll find who can take it, keep it cold, and pick it up in time.</p>
-    </div>
-    <section class="card">
-      <h2><span class="step">Quick calls</span></h2>
-      <p class="sub">One tap starts the search.</p>
-      <div class="scenarios" id="scenarios">
-        <button class="scenario" type="button" data-id="spinach" aria-pressed="true">
-          <span class="t">🥬 Grocer spinach call</span>
-          <span class="d">10 crates · needs to go in 6 h · must stay cold</span>
-        </button>
-        <button class="scenario" type="button" data-id="trays" aria-pressed="false">
-          <span class="t">🍗 Catering meal trays</span>
-          <span class="d">40 lb chicken and rice · needs to go tonight (4 h)</span>
-        </button>
-        <button class="scenario" type="button" data-id="dairy" aria-pressed="false">
-          <span class="t">🥛 Milk and yogurt crates</span>
-          <span class="d">2 pallets · 8 h · needs a proper fridge</span>
-        </button>
-      </div>
-    </section>
+  <!-- Screen 1: today's board -->
+  <section class="board" id="screenBoard" hidden></section>
 
-    <section class="card form">
-      <label class="f">What is the food?
-        <textarea id="posting_text" rows="3">10 crates of fresh spinach, harvested yesterday, needs cold storage</textarea>
+  <!-- Screen 2: a donor called -->
+  <section class="screen-new" id="screenNew" hidden>
+    <form class="form" id="form" autocomplete="off">
+      <h2>A donor called</h2>
+      <div class="calls" id="calls"></div>
+      <label class="f">Who called?
+        <input id="donor" type="text" placeholder="Mariano's, Halsted St">
+      </label>
+      <label class="f">What are they offering?
+        <textarea id="posting_text" rows="2"></textarea>
       </label>
       <div class="row2">
-        <label class="f">How much (pallets)
-          <input id="pallets" type="number" min="1" max="20" value="1">
-        </label>
-        <label class="f">Needs to go by (hours)
-          <input id="hours" type="number" min="1" max="72" value="6">
+        <div class="unit">
+          <label class="f">How much?
+            <input id="qty" type="number" min="0" max="60" value="10">
+          </label>
+          <div class="seg" id="unit" role="group" aria-label="Unit">
+            <button type="button" data-u="crates" aria-pressed="true">crates</button>
+            <button type="button" data-u="pallets" aria-pressed="false">pallets</button>
+          </div>
+        </div>
+        <label class="f">Needs to go by
+          <input id="goby" type="time" step="300">
         </label>
       </div>
-      <label class="check"><input id="req_cold" type="checkbox" checked> ❄️ Must stay cold</label>
-      <label class="check"><input id="req_van" type="checkbox" checked> 🚐 Pantry picks it up in their own van</label>
-      <button class="primary" type="button" id="findBtn">🔍 Find who can take it</button>
-    </section>
-   </div>
+      <label class="cold"><input id="cold" type="checkbox" checked> ❄️ Must stay cold</label>
+      <div class="f">Who collects it?
+        <div class="seg" id="collects" role="group" aria-label="Who collects it">
+          <button type="button" data-v="van" aria-pressed="true">🚐 Pantry's own van</button>
+          <button type="button" data-v="driver" aria-pressed="false">🚗 I'll send a driver</button>
+        </div>
+      </div>
+      <button class="btn primary" type="submit" id="findBtn">🔍 Find who can take it</button>
+    </form>
   </section>
 
-  <!-- Screen 2: who can take it. Tabs left, map right. -->
-  <section class="screen-results" id="screenResults" hidden>
-    <main class="stack" id="stack">
-      <section class="card"><p class="empty"><span class="spin"></span>Finding who can take it…</p></section>
-    </main>
-
-    <section class="mapwrap" aria-label="Chicago rescue map">
+  <!-- Screen 3: one offer. Cards left, map right. -->
+  <section class="screen-offer" id="screenOffer" hidden>
+    <main class="stack" id="stack"></main>
+    <section class="mapwrap" aria-label="Map of the pickup and the pantries">
       <div id="map"></div>
-      <div class="clock">
-        <div class="k">⏱️ Time left on the clock</div>
-        <div class="v num" id="clockV">—</div>
-        <div class="by" id="clockBy">Waiting for an offer</div>
-      </div>
-      <div class="legend">
-        <span><i style="background: var(--donor)"></i> Pickup dock</span>
-        <span><i style="background: var(--good)"></i> #1 can take it</span>
-        <span><i style="background: var(--warn)"></i> Backups</span>
-        <span><i style="background: var(--bad)"></i> Skipped</span>
-      </div>
     </section>
   </section>
+
+  <footer class="foot" id="foot"></footer>
 </div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <script>
-/* ---------------------------------------------------------------
-   Reads ONLY contract fields (docs/frontend_plan.md); normalize() fills any the tools leave out.
-   /api/match is required. /api/brief and /api/equity_audit are optional
-   (Track B); the page falls back to plain template text without them.
----------------------------------------------------------------- */
+/* ------------------------------------------------------------------
+   Reads ONLY Contract 1 fields (docs/frontend_plan.md); normalize() fills any the tools leave out.
+------------------------------------------------------------------- */
 const DONOR = { lat: 41.8781, lon: -87.6298 };   // downtown Chicago pickup dock
-const SCENARIOS = {
-  spinach: { text: "10 crates of fresh spinach, harvested yesterday, needs cold storage", pallets: 1, hours: 6, cold: true, van: true },
-  trays: { text: "40 lbs prepared hot/chilled chicken & rice trays from catering, must move tonight", pallets: 1, hours: 4, cold: true, van: true },
-  dairy: { text: "60 gallons of milk and mixed yogurt crates, 2 days to date code", pallets: 2, hours: 8, cold: true, van: true },
+const CALLS = {
+  spinach: { label: "🥬 Grocer spinach", desc: "10 crates · 6 h · keep cold", donor: "Mariano's, Halsted St", text: "10 crates of fresh spinach, harvested yesterday, needs cold storage", qty: 10, unit: "crates", hours: 6, cold: true, van: true },
+  trays: { label: "🍗 Catering trays", desc: "40 lb chicken and rice · tonight (4 h)", donor: "Blue Plate Catering", text: "40 lbs prepared hot/chilled chicken & rice trays from catering, must move tonight", qty: 1, unit: "pallets", hours: 4, cold: true, van: true },
+  dairy: { label: "🥛 Milk and yogurt", desc: "2 pallets · 8 h · needs a proper fridge", donor: "Jewel-Osco, Roosevelt Rd", text: "60 gallons of milk and mixed yogurt crates, 2 days to date code", qty: 2, unit: "pallets", hours: 8, cold: true, van: true },
+  cooler: { label: "🧊 Cooler failure", desc: "5 pallets · 4 h · too much for one pantry", donor: "Pete's Fresh Market, Western Ave", text: "Walk-in cooler failed overnight: 5 pallets of milk, yogurt and produce, must move in 4 hours, needs cold storage", qty: 5, unit: "pallets", hours: 4, cold: true, van: true },
 };
-const QUESTIONS = [
-  "Who can take it and collect in time?",
-  "Why them and not the other pantry?",
-  "They said no. Who's next?",
-  "How long does it actually last?",
-  "Can they pick it up or do we need a driver?",
-  "Whose neighbourhood does this help?",
-  "Write the pickup message.",
-];
-let declined = [];
-let activeTab = "match";
-let demoMode = false;   // true when no matcher answers and the page runs on its built-in demo data
-let data = null;
-let clockEnd = null;
-let lastReq = null;
-let equity = null;
+const STAGE_LABEL = { new: "Finding…", matched: "Ready to send", sent: "Text sent", accepted: "Accepted", picked_up: "Picked up", delivered: "Delivered", nobody: "No one yet" };
+const STAGES = ["matched", "sent", "accepted", "picked_up", "delivered"];
+const STAGE_WORD = { matched: "Matched", sent: "Text sent", accepted: "Accepted", picked_up: "Picked up", delivered: "Delivered" };
+const REASON_WORD = { no_cold_storage: "no refrigerator", contradiction: "contradictory profile", no_vehicle: "no van", too_slow: "too slow", no_freezer: "no freezer", weak_cold: "fridge not cold enough", too_small: "not enough room", declined: "said no" };
+
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const hrs = h => (Number.isInteger(h) ? h : Number(h).toFixed(1)) + " h";
-const foodWord = txt => { const t = (txt || "").toLowerCase(); return t.includes("spinach") || t.includes("greens") ? "greens" : t.includes("milk") || t.includes("yogurt") ? "dairy" : t.includes("tray") || t.includes("prepared") ? "prepared meals" : "this food"; };
+const nice = s => { s = String(s ?? ""); return s === s.toUpperCase() ? s.toLowerCase().replace(/\b[a-z]/g, c => c.toUpperCase()).replace(/\b(S|N|E|W|Nw|Ne|Sw|Se)\b/g, m => m.toUpperCase()) : s; };
+const fmtT = iso => new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }).toLowerCase();
+const left = iso => new Date(iso).getTime() - Date.now();
+const leftShort = ms => { if (ms <= 0) return "overdue"; const h = Math.floor(ms / 3.6e6), m = Math.floor(ms % 3.6e6 / 6e4); return h ? `${h} h ${String(m).padStart(2, "0")} m` : `${m} m`; };
+const leftLong = ms => { if (ms <= 0) return "0:00:00"; const h = Math.floor(ms / 3.6e6), m = Math.floor(ms % 3.6e6 / 6e4), s = Math.floor(ms % 6e4 / 1000); return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`; };
+const leftCls = (ms, stage) => stage === "delivered" ? "done" : ms <= 0 ? "bad" : ms < 3.6e6 ? "warn" : "";
+const foodWord = txt => { const t = (txt || "").toLowerCase(); return t.includes("spinach") || t.includes("greens") ? "greens" : t.includes("milk") || t.includes("yogurt") || t.includes("dairy") ? "dairy" : t.includes("tray") || t.includes("prepared") ? "prepared meals" : "this food"; };
+const coolerWord = c => ({ "walk-in": "Walk-in cooler", commercial: "Commercial fridge", domestic: "Home fridge", medical: "Medical fridge" }[c] || c);
+const pallets = (qty, unit) => unit === "pallets" ? qty : (qty ? Math.max(1, Math.ceil(qty / 12)) : 0);
 
 function humanReason(d, offer) {
-  const short = d.name.split(" ")[0];
+  const short = nice(d.name).split(" ")[0];
   switch (d.reason_code) {
     case "no_cold_storage": return `Why we skipped ${short}: wants ${foodWord(offer)}, but has no refrigerator.`;
     case "contradiction": return `Why we skipped ${short}: their profile says walk-in freezer and single cupboard shelf. We don't trust it yet.`;
@@ -389,8 +352,8 @@ function humanReason(d, offer) {
     default: return `Why we skipped ${short}.`;
   }
 }
-/* The Lane 3 tools on main return a slimmer shape than Contract 1 (search_backend, no reason_code,
-   no donor or pallets in posting_summary). Fill the gaps once so the rest of the page reads one shape. */
+/* The Lane 3 tools return a slimmer shape than Contract 1 (search_backend, no reason_code, no donor or
+   pallets in posting_summary). Fill the gaps once so the rest of the page reads one shape. */
 function reasonFrom(text) {
   const r = (text || "").toLowerCase();
   if (r.includes("contradicts")) return "contradiction";
@@ -411,24 +374,28 @@ function normalize(d, req) {
   ps.donor ??= { lat: req.donor_lat, lon: req.donor_lon };
   d.data_source ??= d.search_backend === "bigquery_vector_search" ? "bigquery_live" : "seeded_fallback";
   d.matches = d.matches || [];
-  d.matches.forEach(m => { m.pallets_allocated ??= Math.min(ps.pallets_offered, Math.max(1, m.max_pallets || 1)); });
+  d.matches.forEach(m => { m.pallets_allocated ??= Math.min(ps.pallets_offered || 1, Math.max(1, m.max_pallets || 1)); });
   d.rejected_decoys = d.rejected_decoys || [];
   d.rejected_decoys.forEach(x => { x.reason_code ??= reasonFrom(x.rejection_reason); });
+  d.split_plan = d.split_plan || [];
   return d;
 }
-/* Built-in demo data: /api/match answers for the three quick calls (and for "#1 said no"),
-   captured from the seeded corpus. Used only when no matcher answers, e.g. the standalone preview. */
+
+/* Built-in demo data: /api/match answers for the four quick calls (and for "#1 said no"),
+   captured from the seeded corpus. Used when no matcher answers, e.g. the standalone preview. */
 const DEMO = {
   "spinach": {"posting_summary":{"food_item":"Fresh spinach (10 crates)","pallets_estimate":1,"requires_cold_storage":true,"requires_frozen":false,"donor_deadline_hours":6,"usda_shelf_life_hours":72,"effective_window_hours":6,"shelf_life_note":"Matched USDA FoodKeeper 'Lettuce (leaf, spinach)' (72h refrigerated) - consumer home-storage guidance, capped by donor's 6h deadline."},"matches":[{"rank":1,"recipient_id":186,"name":"Cedar Street Produce Alliance","street":"2140 S KEDZIE AVE","city":"CHICAGO","zip_code":"60623","lat":41.8631,"lon":-87.6518,"distance_km":2.47,"cold_storage":"walk-in","frozen_storage":false,"refrigerated_transport":true,"max_pallets":10,"pickup_window_hours":4,"margin_hours":2,"profile_text":"Produce-focused redistribution with a walk-in cooler and a refrigerated van. We turn fresh fruit and vegetables within 48 hours and serve about 600 households a week.","why_them":"Has walk-in cold storage (up to 10 pallets), own refrigerated van for pickup within 4 hours (2h safety margin before 6h cutoff), and serves a high-need tract (34.8% poverty, 31.2% no-vehicle). Profile match: \"Produce-focused redistribution with a walk-in cooler and a refrigerated van. We turn fresh fruit and vegetables within 4...\" | TIE-BREAKER NOTE: Cedar Street Produce Alliance and Maple Street Produce Alliance are operationally identical (both have walk-in coolers, reefer vans, loading docks, 10-pallet capacity, and serve ~600 households/wk). Ranked Cedar Street Produce Alliance ahead based on higher neighborhood food-equity need (34.8% poverty & 31.2% no-vehicle households vs. 14.2% poverty & 12.8% no-vehicle) and shorter distance (2.47 km vs. 3.86 km).","equity_context":{"poverty_rate":34.8,"pct_no_vehicle":31.2},"draft_message":"URGENT PICKUP AVAILABLE: Fresh spinach (10 crates) (~1 pallet(s)) available now at 2.47 km away. Must be collected within 6h (fits your 4h reefer van window; 2h safety margin). Reply ACCEPT to claim or DECLINE to pass to backup."},{"rank":2,"recipient_id":187,"name":"Maple Street Produce Alliance","street":"3810 N LINCOLN AVE","city":"CHICAGO","zip_code":"60613","lat":41.9101,"lon":-87.6478,"distance_km":3.86,"cold_storage":"walk-in","frozen_storage":false,"refrigerated_transport":true,"max_pallets":10,"pickup_window_hours":4,"margin_hours":2,"profile_text":"Fresh produce hub with walk-in refrigeration and our own reefer truck. Roughly 600 households weekly, and perishables move through us in under two days.","why_them":"Has walk-in cold storage (up to 10 pallets), own refrigerated van for pickup within 4 hours (2h safety margin before 6h cutoff), and serves a high-need tract (14.2% poverty, 12.8% no-vehicle). Profile match: \"Fresh produce hub with walk-in refrigeration and our own reefer truck. Roughly 600 households weekly, and perishables mo...\" | TIE-BREAKER NOTE: Cedar Street Produce Alliance and Maple Street Produce Alliance are operationally identical (both have walk-in coolers, reefer vans, loading docks, 10-pallet capacity, and serve ~600 households/wk). Ranked Cedar Street Produce Alliance ahead based on higher neighborhood food-equity need (34.8% poverty & 31.2% no-vehicle households vs. 14.2% poverty & 12.8% no-vehicle) and shorter distance (2.47 km vs. 3.86 km).","equity_context":{"poverty_rate":14.2,"pct_no_vehicle":12.8},"draft_message":"URGENT PICKUP AVAILABLE: Fresh spinach (10 crates) (~1 pallet(s)) available now at 3.86 km away. Must be collected within 6h (fits your 4h reefer van window; 2h safety margin). Reply ACCEPT to claim or DECLINE to pass to backup."},{"rank":3,"recipient_id":27,"name":"ENGLEWOOD MOBILE MARKET & PANTRY","street":"6450 S HALSTED ST","city":"CHICAGO","zip_code":"60621","lat":41.7768,"lon":-87.6446,"distance_km":11.33,"cold_storage":"vehicle","frozen_storage":false,"refrigerated_transport":true,"max_pallets":2,"pickup_window_hours":2,"margin_hours":4,"profile_text":"Mobile pantry operating a chilled van across South Side neighborhoods. Route flexibility is our strength - a same-day diversion is usually possible within 2 hours. Fresh produce, dairy, milk, yogurt, and prepared deli items move best for us because we distribute everything the same day.","why_them":"Has vehicle cold storage (up to 2 pallets), own refrigerated van for pickup within 2 hours (4h safety margin before 6h cutoff), and serves a high-need tract (38.2% poverty, 33.5% no-vehicle). Profile match: \"Mobile pantry operating a chilled van across South Side neighborhoods. Route flexibility is our strength - a same-day di...\"","equity_context":{"poverty_rate":38.2,"pct_no_vehicle":33.5},"draft_message":"URGENT PICKUP AVAILABLE: Fresh spinach (10 crates) (~1 pallet(s)) available now at 11.33 km away. Must be collected within 6h (fits your 2h reefer van window; 4h safety margin). Reply ACCEPT to claim or DECLINE to pass to backup."}],"rejected_decoys":[{"name":"Greenline Community Pantry","semantic_rank":1,"rejection_reason":"Matched #1 on meaning ('Our families ask for fresh greens and salad vegetables more than anything else'), but BLOCKED by constraint filter: cold_storage='none' (no refrigeration on site)."},{"name":"Brookfield Family Resource Center","semantic_rank":4,"rejection_reason":"Matched #4 on meaning, but BLOCKED by logistics filter: donor requires recipient pickup van (requires_pickup_van=True), but recipient lacks refrigerated transport (refrigerated_transport=False)."},{"name":"Ridgeway Avenue Food Ministry","semantic_rank":6,"rejection_reason":"Matched #6 on meaning, but BLOCKED by logistics filter: donor requires recipient pickup van (requires_pickup_van=True), but recipient lacks refrigerated transport (refrigerated_transport=False)."},{"name":"Southline Neighbors Pantry","semantic_rank":8,"rejection_reason":"Matched #8 on meaning, but BLOCKED by logistics filter: donor requires recipient pickup van (requires_pickup_van=True), but recipient lacks refrigerated transport (refrigerated_transport=False)."},{"name":"Third Ward Community Table","semantic_rank":11,"rejection_reason":"Matched #11 on meaning, but BLOCKED by logistics filter: donor requires recipient pickup van (requires_pickup_van=True), but recipient lacks refrigerated transport (refrigerated_transport=False)."},{"name":"Harborview Neighbors Trust","semantic_rank":12,"rejection_reason":"Profile contradicts itself and its storage flags: claims 'large walk-in freezer and can accept full pallets of frozen protein' in sentence 1, but states 'Storage is a single shelf in a shared cupboard and we have no freezer at present' in sentence 2. Blocked for data integrity validation."},{"name":"SOUTH SHORE DIAPER & INFANT ESSENTIALS BANK","semantic_rank":15,"rejection_reason":"Matched #15 on meaning, but BLOCKED by logistics filter: donor requires recipient pickup van (requires_pickup_van=True), but recipient lacks refrigerated transport (refrigerated_transport=False)."}],"declined_recipients":[],"split_plan":[],"tie_breaker_explanation":"TIE-BREAKER NOTE: Cedar Street Produce Alliance and Maple Street Produce Alliance are operationally identical (both have walk-in coolers, reefer vans, loading docks, 10-pallet capacity, and serve ~600 households/wk). Ranked Cedar Street Produce Alliance ahead based on higher neighborhood food-equity need (34.8% poverty & 31.2% no-vehicle households vs. 14.2% poverty & 12.8% no-vehicle) and shorter distance (2.47 km vs. 3.86 km).","search_backend":"local_fallback_corpus","clock":{"food_item":"Fresh spinach (10 crates)","queried_food":"10 crates of fresh spinach, harvested yesterday, needs cold storage","donor_deadline_hours":6,"usda_shelf_life_hours":72,"effective_window_hours":6,"storage_state":"refrigerated","requires_cold_storage":true,"requires_refrigeration":true,"requires_frozen":false,"matched_product":"Lettuce (leaf, spinach)","matched_usda_product":"Lettuce (leaf, spinach)","sentinel_status":"ok","status":"ok","shelf_life_note":"Matched USDA FoodKeeper 'Lettuce (leaf, spinach)' (72h refrigerated) - consumer home-storage guidance, capped by donor's 6h deadline.","caveat":"Matched USDA FoodKeeper 'Lettuce (leaf, spinach)' (72h refrigerated) - consumer home-storage guidance, capped by donor's 6h deadline."}},
   "spinach:declined1": {"posting_summary":{"food_item":"Fresh spinach (10 crates)","pallets_estimate":1,"requires_cold_storage":true,"requires_frozen":false,"donor_deadline_hours":6,"usda_shelf_life_hours":72,"effective_window_hours":6,"shelf_life_note":"Matched USDA FoodKeeper 'Lettuce (leaf, spinach)' (72h refrigerated) - consumer home-storage guidance, capped by donor's 6h deadline."},"matches":[{"rank":1,"recipient_id":187,"name":"Maple Street Produce Alliance","street":"3810 N LINCOLN AVE","city":"CHICAGO","zip_code":"60613","lat":41.9101,"lon":-87.6478,"distance_km":3.86,"cold_storage":"walk-in","frozen_storage":false,"refrigerated_transport":true,"max_pallets":10,"pickup_window_hours":4,"margin_hours":2,"profile_text":"Fresh produce hub with walk-in refrigeration and our own reefer truck. Roughly 600 households weekly, and perishables move through us in under two days.","why_them":"Has walk-in cold storage (up to 10 pallets), own refrigerated van for pickup within 4 hours (2h safety margin before 6h cutoff), and serves a high-need tract (14.2% poverty, 12.8% no-vehicle). Profile match: \"Fresh produce hub with walk-in refrigeration and our own reefer truck. Roughly 600 households weekly, and perishables mo...\"","equity_context":{"poverty_rate":14.2,"pct_no_vehicle":12.8},"draft_message":"URGENT PICKUP AVAILABLE: Fresh spinach (10 crates) (~1 pallet(s)) available now at 3.86 km away. Must be collected within 6h (fits your 4h reefer van window; 2h safety margin). Reply ACCEPT to claim or DECLINE to pass to backup."},{"rank":2,"recipient_id":27,"name":"ENGLEWOOD MOBILE MARKET & PANTRY","street":"6450 S HALSTED ST","city":"CHICAGO","zip_code":"60621","lat":41.7768,"lon":-87.6446,"distance_km":11.33,"cold_storage":"vehicle","frozen_storage":false,"refrigerated_transport":true,"max_pallets":2,"pickup_window_hours":2,"margin_hours":4,"profile_text":"Mobile pantry operating a chilled van across South Side neighborhoods. Route flexibility is our strength - a same-day diversion is usually possible within 2 hours. Fresh produce, dairy, milk, yogurt, and prepared deli items move best for us because we distribute everything the same day.","why_them":"Has vehicle cold storage (up to 2 pallets), own refrigerated van for pickup within 2 hours (4h safety margin before 6h cutoff), and serves a high-need tract (38.2% poverty, 33.5% no-vehicle). Profile match: \"Mobile pantry operating a chilled van across South Side neighborhoods. Route flexibility is our strength - a same-day di...\"","equity_context":{"poverty_rate":38.2,"pct_no_vehicle":33.5},"draft_message":"URGENT PICKUP AVAILABLE: Fresh spinach (10 crates) (~1 pallet(s)) available now at 11.33 km away. Must be collected within 6h (fits your 2h reefer van window; 4h safety margin). Reply ACCEPT to claim or DECLINE to pass to backup."},{"rank":3,"recipient_id":14,"name":"WESTSIDE COMMUNITY KITCHEN","street":"1420 W MADISON ST","city":"CHICAGO","zip_code":"60607","lat":41.8819,"lon":-87.6624,"distance_km":2.73,"cold_storage":"commercial","frozen_storage":true,"refrigerated_transport":true,"max_pallets":3,"pickup_window_hours":3,"margin_hours":3,"profile_text":"Fresh produce hub serving 480 households a week on the West Side. Commercial walk-in cooler and reach-in dairy cases on site. Our refrigerated van is on the road daily and can collect within 3 hours. High need for fresh salad greens, spinach, produce, dairy, and prepared meals.","why_them":"Has commercial cold storage (up to 3 pallets), own refrigerated van for pickup within 3 hours (3h safety margin before 6h cutoff), and serves a high-need tract (31.4% poverty, 26.8% no-vehicle). Profile match: \"Fresh produce hub serving 480 households a week on the West Side. Commercial walk-in cooler and reach-in dairy cases on ...\"","equity_context":{"poverty_rate":31.4,"pct_no_vehicle":26.8},"draft_message":"URGENT PICKUP AVAILABLE: Fresh spinach (10 crates) (~1 pallet(s)) available now at 2.73 km away. Must be collected within 6h (fits your 3h reefer van window; 3h safety margin). Reply ACCEPT to claim or DECLINE to pass to backup."}],"rejected_decoys":[{"name":"Greenline Community Pantry","semantic_rank":1,"rejection_reason":"Matched #1 on meaning ('Our families ask for fresh greens and salad vegetables more than anything else'), but BLOCKED by constraint filter: cold_storage='none' (no refrigeration on site)."},{"name":"Brookfield Family Resource Center","semantic_rank":4,"rejection_reason":"Matched #4 on meaning, but BLOCKED by logistics filter: donor requires recipient pickup van (requires_pickup_van=True), but recipient lacks refrigerated transport (refrigerated_transport=False)."},{"name":"Ridgeway Avenue Food Ministry","semantic_rank":6,"rejection_reason":"Matched #6 on meaning, but BLOCKED by logistics filter: donor requires recipient pickup van (requires_pickup_van=True), but recipient lacks refrigerated transport (refrigerated_transport=False)."},{"name":"Southline Neighbors Pantry","semantic_rank":8,"rejection_reason":"Matched #8 on meaning, but BLOCKED by logistics filter: donor requires recipient pickup van (requires_pickup_van=True), but recipient lacks refrigerated transport (refrigerated_transport=False)."},{"name":"Third Ward Community Table","semantic_rank":11,"rejection_reason":"Matched #11 on meaning, but BLOCKED by logistics filter: donor requires recipient pickup van (requires_pickup_van=True), but recipient lacks refrigerated transport (refrigerated_transport=False)."},{"name":"Harborview Neighbors Trust","semantic_rank":12,"rejection_reason":"Profile contradicts itself and its storage flags: claims 'large walk-in freezer and can accept full pallets of frozen protein' in sentence 1, but states 'Storage is a single shelf in a shared cupboard and we have no freezer at present' in sentence 2. Blocked for data integrity validation."},{"name":"SOUTH SHORE DIAPER & INFANT ESSENTIALS BANK","semantic_rank":15,"rejection_reason":"Matched #15 on meaning, but BLOCKED by logistics filter: donor requires recipient pickup van (requires_pickup_van=True), but recipient lacks refrigerated transport (refrigerated_transport=False)."}],"declined_recipients":[{"recipient_id":186,"name":"Cedar Street Produce Alliance","status":"declined_by_recipient","reason":"Coordinator marked recipient as unavailable/declined; routed to next backup."}],"split_plan":[],"tie_breaker_explanation":null,"search_backend":"local_fallback_corpus","clock":{"food_item":"Fresh spinach (10 crates)","queried_food":"10 crates of fresh spinach, harvested yesterday, needs cold storage","donor_deadline_hours":6,"usda_shelf_life_hours":72,"effective_window_hours":6,"storage_state":"refrigerated","requires_cold_storage":true,"requires_refrigeration":true,"requires_frozen":false,"matched_product":"Lettuce (leaf, spinach)","matched_usda_product":"Lettuce (leaf, spinach)","sentinel_status":"ok","status":"ok","shelf_life_note":"Matched USDA FoodKeeper 'Lettuce (leaf, spinach)' (72h refrigerated) - consumer home-storage guidance, capped by donor's 6h deadline.","caveat":"Matched USDA FoodKeeper 'Lettuce (leaf, spinach)' (72h refrigerated) - consumer home-storage guidance, capped by donor's 6h deadline."}},
   "trays": {"posting_summary":{"food_item":"40 lbs prepared hot/chilled chicken & rice trays from catering, must move tonight","pallets_estimate":1,"requires_cold_storage":true,"requires_frozen":false,"donor_deadline_hours":4,"usda_shelf_life_hours":72,"effective_window_hours":4,"shelf_life_note":"Matched USDA FoodKeeper 'Leftovers (with meat, fish, poultry, or egg)' (72h refrigerated) - consumer home-storage guidance, capped by donor's 4h deadline."},"matches":[{"rank":1,"recipient_id":186,"name":"Cedar Street Produce Alliance","street":"2140 S KEDZIE AVE","city":"CHICAGO","zip_code":"60623","lat":41.8631,"lon":-87.6518,"distance_km":2.47,"cold_storage":"walk-in","frozen_storage":false,"refrigerated_transport":true,"max_pallets":10,"pickup_window_hours":4,"margin_hours":0,"profile_text":"Produce-focused redistribution with a walk-in cooler and a refrigerated van. We turn fresh fruit and vegetables within 48 hours and serve about 600 households a week.","why_them":"Has walk-in cold storage (up to 10 pallets), own refrigerated van for pickup within 4 hours (0h safety margin before 4h cutoff), and serves a high-need tract (34.8% poverty, 31.2% no-vehicle). Profile match: \"Produce-focused redistribution with a walk-in cooler and a refrigerated van. We turn fresh fruit and vegetables within 4...\" | TIE-BREAKER NOTE: Cedar Street Produce Alliance and Maple Street Produce Alliance are operationally identical (both have walk-in coolers, reefer vans, loading docks, 10-pallet capacity, and serve ~600 households/wk). Ranked Cedar Street Produce Alliance ahead based on higher neighborhood food-equity need (34.8% poverty & 31.2% no-vehicle households vs. 14.2% poverty & 12.8% no-vehicle) and shorter distance (2.47 km vs. 3.86 km).","equity_context":{"poverty_rate":34.8,"pct_no_vehicle":31.2},"draft_message":"URGENT PICKUP AVAILABLE: 40 lbs prepared hot/chilled chicken & rice trays from catering, must move tonight (~1 pallet(s)) available now at 2.47 km away. Must be collected within 4h (fits your 4h reefer van window; 0h safety margin). Reply ACCEPT to claim or DECLINE to pass to backup."},{"rank":2,"recipient_id":187,"name":"Maple Street Produce Alliance","street":"3810 N LINCOLN AVE","city":"CHICAGO","zip_code":"60613","lat":41.9101,"lon":-87.6478,"distance_km":3.86,"cold_storage":"walk-in","frozen_storage":false,"refrigerated_transport":true,"max_pallets":10,"pickup_window_hours":4,"margin_hours":0,"profile_text":"Fresh produce hub with walk-in refrigeration and our own reefer truck. Roughly 600 households weekly, and perishables move through us in under two days.","why_them":"Has walk-in cold storage (up to 10 pallets), own refrigerated van for pickup within 4 hours (0h safety margin before 4h cutoff), and serves a high-need tract (14.2% poverty, 12.8% no-vehicle). Profile match: \"Fresh produce hub with walk-in refrigeration and our own reefer truck. Roughly 600 households weekly, and perishables mo...\" | TIE-BREAKER NOTE: Cedar Street Produce Alliance and Maple Street Produce Alliance are operationally identical (both have walk-in coolers, reefer vans, loading docks, 10-pallet capacity, and serve ~600 households/wk). Ranked Cedar Street Produce Alliance ahead based on higher neighborhood food-equity need (34.8% poverty & 31.2% no-vehicle households vs. 14.2% poverty & 12.8% no-vehicle) and shorter distance (2.47 km vs. 3.86 km).","equity_context":{"poverty_rate":14.2,"pct_no_vehicle":12.8},"draft_message":"URGENT PICKUP AVAILABLE: 40 lbs prepared hot/chilled chicken & rice trays from catering, must move tonight (~1 pallet(s)) available now at 3.86 km away. Must be collected within 4h (fits your 4h reefer van window; 0h safety margin). Reply ACCEPT to claim or DECLINE to pass to backup."},{"rank":3,"recipient_id":27,"name":"ENGLEWOOD MOBILE MARKET & PANTRY","street":"6450 S HALSTED ST","city":"CHICAGO","zip_code":"60621","lat":41.7768,"lon":-87.6446,"distance_km":11.33,"cold_storage":"vehicle","frozen_storage":false,"refrigerated_transport":true,"max_pallets":2,"pickup_window_hours":2,"margin_hours":2,"profile_text":"Mobile pantry operating a chilled van across South Side neighborhoods. Route flexibility is our strength - a same-day diversion is usually possible within 2 hours. Fresh produce, dairy, milk, yogurt, and prepared deli items move best for us because we distribute everything the same day.","why_them":"Has vehicle cold storage (up to 2 pallets), own refrigerated van for pickup within 2 hours (2h safety margin before 4h cutoff), and serves a high-need tract (38.2% poverty, 33.5% no-vehicle). Profile match: \"Mobile pantry operating a chilled van across South Side neighborhoods. Route flexibility is our strength - a same-day di...\"","equity_context":{"poverty_rate":38.2,"pct_no_vehicle":33.5},"draft_message":"URGENT PICKUP AVAILABLE: 40 lbs prepared hot/chilled chicken & rice trays from catering, must move tonight (~1 pallet(s)) available now at 11.33 km away. Must be collected within 4h (fits your 2h reefer van window; 2h safety margin). Reply ACCEPT to claim or DECLINE to pass to backup."}],"rejected_decoys":[{"name":"Ridgeway Avenue Food Ministry","semantic_rank":5,"rejection_reason":"Matched #5 on meaning, but BLOCKED by logistics filter: donor requires recipient pickup van (requires_pickup_van=True), but recipient lacks refrigerated transport (refrigerated_transport=False)."},{"name":"Brookfield Family Resource Center","semantic_rank":7,"rejection_reason":"Matched #7 on meaning, but BLOCKED by logistics filter: donor requires recipient pickup van (requires_pickup_van=True), but recipient lacks refrigerated transport (refrigerated_transport=False)."},{"name":"Harborview Neighbors Trust","semantic_rank":8,"rejection_reason":"Profile contradicts itself and its storage flags: claims 'large walk-in freezer and can accept full pallets of frozen protein' in sentence 1, but states 'Storage is a single shelf in a shared cupboard and we have no freezer at present' in sentence 2. Blocked for data integrity validation."},{"name":"Greenline Community Pantry","semantic_rank":10,"rejection_reason":"Matched #10 on meaning ('Our families ask for fresh greens and salad vegetables more than anything else'), but BLOCKED by constraint filter: cold_storage='none' (no refrigeration on site)."},{"name":"Southline Neighbors Pantry","semantic_rank":11,"rejection_reason":"Matched #11 on meaning, but BLOCKED by logistics filter: donor requires recipient pickup van (requires_pickup_van=True), but recipient lacks refrigerated transport (refrigerated_transport=False)."},{"name":"GREATER MIDWEST REGIONAL FOOD DEPOSITORY","semantic_rank":13,"rejection_reason":"Matched #13 on meaning, but BLOCKED by clock filter: pickup_window_hours=8h exceeds the 4h effective spoilage/donor deadline."},{"name":"Third Ward Community Table","semantic_rank":14,"rejection_reason":"Matched #14 on meaning, but BLOCKED by logistics filter: donor requires recipient pickup van (requires_pickup_van=True), but recipient lacks refrigerated transport (refrigerated_transport=False)."},{"name":"SOUTH SHORE DIAPER & INFANT ESSENTIALS BANK","semantic_rank":15,"rejection_reason":"Matched #15 on meaning, but BLOCKED by logistics filter: donor requires recipient pickup van (requires_pickup_van=True), but recipient lacks refrigerated transport (refrigerated_transport=False)."}],"declined_recipients":[],"split_plan":[],"tie_breaker_explanation":"TIE-BREAKER NOTE: Cedar Street Produce Alliance and Maple Street Produce Alliance are operationally identical (both have walk-in coolers, reefer vans, loading docks, 10-pallet capacity, and serve ~600 households/wk). Ranked Cedar Street Produce Alliance ahead based on higher neighborhood food-equity need (34.8% poverty & 31.2% no-vehicle households vs. 14.2% poverty & 12.8% no-vehicle) and shorter distance (2.47 km vs. 3.86 km).","search_backend":"local_fallback_corpus","clock":{"food_item":"40 lbs prepared hot/chilled chicken & rice trays from catering, must move tonight","queried_food":"40 lbs prepared hot/chilled chicken & rice trays from catering, must move tonight","donor_deadline_hours":4,"usda_shelf_life_hours":72,"effective_window_hours":4,"storage_state":"refrigerated","requires_cold_storage":true,"requires_refrigeration":true,"requires_frozen":false,"matched_product":"Leftovers (with meat, fish, poultry, or egg)","matched_usda_product":"Leftovers (with meat, fish, poultry, or egg)","sentinel_status":"ok","status":"ok","shelf_life_note":"Matched USDA FoodKeeper 'Leftovers (with meat, fish, poultry, or egg)' (72h refrigerated) - consumer home-storage guidance, capped by donor's 4h deadline.","caveat":"Matched USDA FoodKeeper 'Leftovers (with meat, fish, poultry, or egg)' (72h refrigerated) - consumer home-storage guidance, capped by donor's 4h deadline."}},
   "trays:declined1": {"posting_summary":{"food_item":"40 lbs prepared hot/chilled chicken & rice trays from catering, must move tonight","pallets_estimate":1,"requires_cold_storage":true,"requires_frozen":false,"donor_deadline_hours":4,"usda_shelf_life_hours":72,"effective_window_hours":4,"shelf_life_note":"Matched USDA FoodKeeper 'Leftovers (with meat, fish, poultry, or egg)' (72h refrigerated) - consumer home-storage guidance, capped by donor's 4h deadline."},"matches":[{"rank":1,"recipient_id":187,"name":"Maple Street Produce Alliance","street":"3810 N LINCOLN AVE","city":"CHICAGO","zip_code":"60613","lat":41.9101,"lon":-87.6478,"distance_km":3.86,"cold_storage":"walk-in","frozen_storage":false,"refrigerated_transport":true,"max_pallets":10,"pickup_window_hours":4,"margin_hours":0,"profile_text":"Fresh produce hub with walk-in refrigeration and our own reefer truck. Roughly 600 households weekly, and perishables move through us in under two days.","why_them":"Has walk-in cold storage (up to 10 pallets), own refrigerated van for pickup within 4 hours (0h safety margin before 4h cutoff), and serves a high-need tract (14.2% poverty, 12.8% no-vehicle). Profile match: \"Fresh produce hub with walk-in refrigeration and our own reefer truck. Roughly 600 households weekly, and perishables mo...\"","equity_context":{"poverty_rate":14.2,"pct_no_vehicle":12.8},"draft_message":"URGENT PICKUP AVAILABLE: 40 lbs prepared hot/chilled chicken & rice trays from catering, must move tonight (~1 pallet(s)) available now at 3.86 km away. Must be collected within 4h (fits your 4h reefer van window; 0h safety margin). Reply ACCEPT to claim or DECLINE to pass to backup."},{"rank":2,"recipient_id":27,"name":"ENGLEWOOD MOBILE MARKET & PANTRY","street":"6450 S HALSTED ST","city":"CHICAGO","zip_code":"60621","lat":41.7768,"lon":-87.6446,"distance_km":11.33,"cold_storage":"vehicle","frozen_storage":false,"refrigerated_transport":true,"max_pallets":2,"pickup_window_hours":2,"margin_hours":2,"profile_text":"Mobile pantry operating a chilled van across South Side neighborhoods. Route flexibility is our strength - a same-day diversion is usually possible within 2 hours. Fresh produce, dairy, milk, yogurt, and prepared deli items move best for us because we distribute everything the same day.","why_them":"Has vehicle cold storage (up to 2 pallets), own refrigerated van for pickup within 2 hours (2h safety margin before 4h cutoff), and serves a high-need tract (38.2% poverty, 33.5% no-vehicle). Profile match: \"Mobile pantry operating a chilled van across South Side neighborhoods. Route flexibility is our strength - a same-day di...\"","equity_context":{"poverty_rate":38.2,"pct_no_vehicle":33.5},"draft_message":"URGENT PICKUP AVAILABLE: 40 lbs prepared hot/chilled chicken & rice trays from catering, must move tonight (~1 pallet(s)) available now at 11.33 km away. Must be collected within 4h (fits your 2h reefer van window; 2h safety margin). Reply ACCEPT to claim or DECLINE to pass to backup."},{"rank":3,"recipient_id":14,"name":"WESTSIDE COMMUNITY KITCHEN","street":"1420 W MADISON ST","city":"CHICAGO","zip_code":"60607","lat":41.8819,"lon":-87.6624,"distance_km":2.73,"cold_storage":"commercial","frozen_storage":true,"refrigerated_transport":true,"max_pallets":3,"pickup_window_hours":3,"margin_hours":1,"profile_text":"Fresh produce hub serving 480 households a week on the West Side. Commercial walk-in cooler and reach-in dairy cases on site. Our refrigerated van is on the road daily and can collect within 3 hours. High need for fresh salad greens, spinach, produce, dairy, and prepared meals.","why_them":"Has commercial cold storage (up to 3 pallets), own refrigerated van for pickup within 3 hours (1h safety margin before 4h cutoff), and serves a high-need tract (31.4% poverty, 26.8% no-vehicle). Profile match: \"Fresh produce hub serving 480 households a week on the West Side. Commercial walk-in cooler and reach-in dairy cases on ...\"","equity_context":{"poverty_rate":31.4,"pct_no_vehicle":26.8},"draft_message":"URGENT PICKUP AVAILABLE: 40 lbs prepared hot/chilled chicken & rice trays from catering, must move tonight (~1 pallet(s)) available now at 2.73 km away. Must be collected within 4h (fits your 3h reefer van window; 1h safety margin). Reply ACCEPT to claim or DECLINE to pass to backup."}],"rejected_decoys":[{"name":"Ridgeway Avenue Food Ministry","semantic_rank":5,"rejection_reason":"Matched #5 on meaning, but BLOCKED by logistics filter: donor requires recipient pickup van (requires_pickup_van=True), but recipient lacks refrigerated transport (refrigerated_transport=False)."},{"name":"Brookfield Family Resource Center","semantic_rank":7,"rejection_reason":"Matched #7 on meaning, but BLOCKED by logistics filter: donor requires recipient pickup van (requires_pickup_van=True), but recipient lacks refrigerated transport (refrigerated_transport=False)."},{"name":"Harborview Neighbors Trust","semantic_rank":8,"rejection_reason":"Profile contradicts itself and its storage flags: claims 'large walk-in freezer and can accept full pallets of frozen protein' in sentence 1, but states 'Storage is a single shelf in a shared cupboard and we have no freezer at present' in sentence 2. Blocked for data integrity validation."},{"name":"Greenline Community Pantry","semantic_rank":10,"rejection_reason":"Matched #10 on meaning ('Our families ask for fresh greens and salad vegetables more than anything else'), but BLOCKED by constraint filter: cold_storage='none' (no refrigeration on site)."},{"name":"Southline Neighbors Pantry","semantic_rank":11,"rejection_reason":"Matched #11 on meaning, but BLOCKED by logistics filter: donor requires recipient pickup van (requires_pickup_van=True), but recipient lacks refrigerated transport (refrigerated_transport=False)."},{"name":"GREATER MIDWEST REGIONAL FOOD DEPOSITORY","semantic_rank":13,"rejection_reason":"Matched #13 on meaning, but BLOCKED by clock filter: pickup_window_hours=8h exceeds the 4h effective spoilage/donor deadline."},{"name":"Third Ward Community Table","semantic_rank":14,"rejection_reason":"Matched #14 on meaning, but BLOCKED by logistics filter: donor requires recipient pickup van (requires_pickup_van=True), but recipient lacks refrigerated transport (refrigerated_transport=False)."},{"name":"SOUTH SHORE DIAPER & INFANT ESSENTIALS BANK","semantic_rank":15,"rejection_reason":"Matched #15 on meaning, but BLOCKED by logistics filter: donor requires recipient pickup van (requires_pickup_van=True), but recipient lacks refrigerated transport (refrigerated_transport=False)."}],"declined_recipients":[{"recipient_id":186,"name":"Cedar Street Produce Alliance","status":"declined_by_recipient","reason":"Coordinator marked recipient as unavailable/declined; routed to next backup."}],"split_plan":[],"tie_breaker_explanation":null,"search_backend":"local_fallback_corpus","clock":{"food_item":"40 lbs prepared hot/chilled chicken & rice trays from catering, must move tonight","queried_food":"40 lbs prepared hot/chilled chicken & rice trays from catering, must move tonight","donor_deadline_hours":4,"usda_shelf_life_hours":72,"effective_window_hours":4,"storage_state":"refrigerated","requires_cold_storage":true,"requires_refrigeration":true,"requires_frozen":false,"matched_product":"Leftovers (with meat, fish, poultry, or egg)","matched_usda_product":"Leftovers (with meat, fish, poultry, or egg)","sentinel_status":"ok","status":"ok","shelf_life_note":"Matched USDA FoodKeeper 'Leftovers (with meat, fish, poultry, or egg)' (72h refrigerated) - consumer home-storage guidance, capped by donor's 4h deadline.","caveat":"Matched USDA FoodKeeper 'Leftovers (with meat, fish, poultry, or egg)' (72h refrigerated) - consumer home-storage guidance, capped by donor's 4h deadline."}},
   "dairy": {"posting_summary":{"food_item":"60 gallons of milk and mixed yogurt crates, 2 days to date code","pallets_estimate":2,"requires_cold_storage":true,"requires_frozen":false,"donor_deadline_hours":8,"usda_shelf_life_hours":null,"effective_window_hours":8,"shelf_life_note":"Matched USDA FoodKeeper 'Milk (plain or flavored)' â duration is sentinel 'package use-by date' (recorded as note 'see_package', never 0h). Capped by donor's 8h deadline. Consumer home-storage guidance."},"matches":[{"rank":1,"recipient_id":186,"name":"Cedar Street Produce Alliance","street":"2140 S KEDZIE AVE","city":"CHICAGO","zip_code":"60623","lat":41.8631,"lon":-87.6518,"distance_km":2.47,"cold_storage":"walk-in","frozen_storage":false,"refrigerated_transport":true,"max_pallets":10,"pickup_window_hours":4,"margin_hours":4,"profile_text":"Produce-focused redistribution with a walk-in cooler and a refrigerated van. We turn fresh fruit and vegetables within 48 hours and serve about 600 households a week.","why_them":"Has walk-in cold storage (up to 10 pallets), own refrigerated van for pickup within 4 hours (4h safety margin before 8h cutoff), and serves a high-need tract (34.8% poverty, 31.2% no-vehicle). Profile match: \"Produce-focused redistribution with a walk-in cooler and a refrigerated van. We turn fresh fruit and vegetables within 4...\" | TIE-BREAKER NOTE: Cedar Street Produce Alliance and Maple Street Produce Alliance are operationally identical (both have walk-in coolers, reefer vans, loading docks, 10-pallet capacity, and serve ~600 households/wk). Ranked Cedar Street Produce Alliance ahead based on higher neighborhood food-equity need (34.8% poverty & 31.2% no-vehicle households vs. 14.2% poverty & 12.8% no-vehicle) and shorter distance (2.47 km vs. 3.86 km).","equity_context":{"poverty_rate":34.8,"pct_no_vehicle":31.2},"draft_message":"URGENT PICKUP AVAILABLE: 60 gallons of milk and mixed yogurt crates, 2 days to date code (~2 pallet(s)) available now at 2.47 km away. Must be collected within 8h (fits your 4h reefer van window; 4h safety margin). Reply ACCEPT to claim or DECLINE to pass to backup."},{"rank":2,"recipient_id":187,"name":"Maple Street Produce Alliance","street":"3810 N LINCOLN AVE","city":"CHICAGO","zip_code":"60613","lat":41.9101,"lon":-87.6478,"distance_km":3.86,"cold_storage":"walk-in","frozen_storage":false,"refrigerated_transport":true,"max_pallets":10,"pickup_window_hours":4,"margin_hours":4,"profile_text":"Fresh produce hub with walk-in refrigeration and our own reefer truck. Roughly 600 households weekly, and perishables move through us in under two days.","why_them":"Has walk-in cold storage (up to 10 pallets), own refrigerated van for pickup within 4 hours (4h safety margin before 8h cutoff), and serves a high-need tract (14.2% poverty, 12.8% no-vehicle). Profile match: \"Fresh produce hub with walk-in refrigeration and our own reefer truck. Roughly 600 households weekly, and perishables mo...\" | TIE-BREAKER NOTE: Cedar Street Produce Alliance and Maple Street Produce Alliance are operationally identical (both have walk-in coolers, reefer vans, loading docks, 10-pallet capacity, and serve ~600 households/wk). Ranked Cedar Street Produce Alliance ahead based on higher neighborhood food-equity need (34.8% poverty & 31.2% no-vehicle households vs. 14.2% poverty & 12.8% no-vehicle) and shorter distance (2.47 km vs. 3.86 km).","equity_context":{"poverty_rate":14.2,"pct_no_vehicle":12.8},"draft_message":"URGENT PICKUP AVAILABLE: 60 gallons of milk and mixed yogurt crates, 2 days to date code (~2 pallet(s)) available now at 3.86 km away. Must be collected within 8h (fits your 4h reefer van window; 4h safety margin). Reply ACCEPT to claim or DECLINE to pass to backup."},{"rank":3,"recipient_id":27,"name":"ENGLEWOOD MOBILE MARKET & PANTRY","street":"6450 S HALSTED ST","city":"CHICAGO","zip_code":"60621","lat":41.7768,"lon":-87.6446,"distance_km":11.33,"cold_storage":"vehicle","frozen_storage":false,"refrigerated_transport":true,"max_pallets":2,"pickup_window_hours":2,"margin_hours":6,"profile_text":"Mobile pantry operating a chilled van across South Side neighborhoods. Route flexibility is our strength - a same-day diversion is usually possible within 2 hours. Fresh produce, dairy, milk, yogurt, and prepared deli items move best for us because we distribute everything the same day.","why_them":"Has vehicle cold storage (up to 2 pallets), own refrigerated van for pickup within 2 hours (6h safety margin before 8h cutoff), and serves a high-need tract (38.2% poverty, 33.5% no-vehicle). Profile match: \"Mobile pantry operating a chilled van across South Side neighborhoods. Route flexibility is our strength - a same-day di...\"","equity_context":{"poverty_rate":38.2,"pct_no_vehicle":33.5},"draft_message":"URGENT PICKUP AVAILABLE: 60 gallons of milk and mixed yogurt crates, 2 days to date code (~2 pallet(s)) available now at 11.33 km away. Must be collected within 8h (fits your 2h reefer van window; 6h safety margin). Reply ACCEPT to claim or DECLINE to pass to backup."}],"rejected_decoys":[{"name":"Ridgeway Avenue Food Ministry","semantic_rank":3,"rejection_reason":"Matched #3 on meaning, but BLOCKED by logistics filter: donor requires recipient pickup van (requires_pickup_van=True), but recipient lacks refrigerated transport (refrigerated_transport=False)."},{"name":"Brookfield Family Resource Center","semantic_rank":7,"rejection_reason":"Matched #7 on meaning, but BLOCKED by logistics filter: donor requires recipient pickup van (requires_pickup_van=True), but recipient lacks refrigerated transport (refrigerated_transport=False)."},{"name":"Harborview Neighbors Trust","semantic_rank":8,"rejection_reason":"Profile contradicts itself and its storage flags: claims 'large walk-in freezer and can accept full pallets of frozen protein' in sentence 1, but states 'Storage is a single shelf in a shared cupboard and we have no freezer at present' in sentence 2. Blocked for data integrity validation."},{"name":"Third Ward Community Table","semantic_rank":9,"rejection_reason":"Matched #9 on meaning, but BLOCKED by capacity filter: only has a domestic household fridge (cold_storage='domestic') and cannot hold 2 pallets of perishables."},{"name":"Greenline Community Pantry","semantic_rank":11,"rejection_reason":"Matched #11 on meaning ('Our families ask for fresh greens and salad vegetables more than anything else'), but BLOCKED by constraint filter: cold_storage='none' (no refrigeration on site)."},{"name":"Southline Neighbors Pantry","semantic_rank":12,"rejection_reason":"Matched #12 on meaning, but BLOCKED by logistics filter: donor requires recipient pickup van (requires_pickup_van=True), but recipient lacks refrigerated transport (refrigerated_transport=False)."},{"name":"SOUTH SHORE DIAPER & INFANT ESSENTIALS BANK","semantic_rank":15,"rejection_reason":"Matched #15 on meaning, but BLOCKED by capacity filter: only has a domestic household fridge (cold_storage='domestic') and cannot hold 2 pallets of perishables."}],"declined_recipients":[],"split_plan":[],"tie_breaker_explanation":"TIE-BREAKER NOTE: Cedar Street Produce Alliance and Maple Street Produce Alliance are operationally identical (both have walk-in coolers, reefer vans, loading docks, 10-pallet capacity, and serve ~600 households/wk). Ranked Cedar Street Produce Alliance ahead based on higher neighborhood food-equity need (34.8% poverty & 31.2% no-vehicle households vs. 14.2% poverty & 12.8% no-vehicle) and shorter distance (2.47 km vs. 3.86 km).","search_backend":"local_fallback_corpus","clock":{"food_item":"60 gallons of milk and mixed yogurt crates, 2 days to date code","queried_food":"60 gallons of milk and mixed yogurt crates, 2 days to date code","donor_deadline_hours":8,"usda_shelf_life_hours":null,"effective_window_hours":8,"storage_state":"refrigerated","requires_cold_storage":true,"requires_refrigeration":true,"requires_frozen":false,"matched_product":"Milk (plain or flavored)","matched_usda_product":"Milk (plain or flavored)","sentinel_status":"see_package","status":"see_package","shelf_life_note":"Matched USDA FoodKeeper 'Milk (plain or flavored)' â duration is sentinel 'package use-by date' (recorded as note 'see_package', never 0h). Capped by donor's 8h deadline. Consumer home-storage guidance.","caveat":"Matched USDA FoodKeeper 'Milk (plain or flavored)' â duration is sentinel 'package use-by date' (recorded as note 'see_package', never 0h). Capped by donor's 8h deadline. Consumer home-storage guidance."}},
-  "dairy:declined1": {"posting_summary":{"food_item":"60 gallons of milk and mixed yogurt crates, 2 days to date code","pallets_estimate":2,"requires_cold_storage":true,"requires_frozen":false,"donor_deadline_hours":8,"usda_shelf_life_hours":null,"effective_window_hours":8,"shelf_life_note":"Matched USDA FoodKeeper 'Milk (plain or flavored)' â duration is sentinel 'package use-by date' (recorded as note 'see_package', never 0h). Capped by donor's 8h deadline. Consumer home-storage guidance."},"matches":[{"rank":1,"recipient_id":187,"name":"Maple Street Produce Alliance","street":"3810 N LINCOLN AVE","city":"CHICAGO","zip_code":"60613","lat":41.9101,"lon":-87.6478,"distance_km":3.86,"cold_storage":"walk-in","frozen_storage":false,"refrigerated_transport":true,"max_pallets":10,"pickup_window_hours":4,"margin_hours":4,"profile_text":"Fresh produce hub with walk-in refrigeration and our own reefer truck. Roughly 600 households weekly, and perishables move through us in under two days.","why_them":"Has walk-in cold storage (up to 10 pallets), own refrigerated van for pickup within 4 hours (4h safety margin before 8h cutoff), and serves a high-need tract (14.2% poverty, 12.8% no-vehicle). Profile match: \"Fresh produce hub with walk-in refrigeration and our own reefer truck. Roughly 600 households weekly, and perishables mo...\"","equity_context":{"poverty_rate":14.2,"pct_no_vehicle":12.8},"draft_message":"URGENT PICKUP AVAILABLE: 60 gallons of milk and mixed yogurt crates, 2 days to date code (~2 pallet(s)) available now at 3.86 km away. Must be collected within 8h (fits your 4h reefer van window; 4h safety margin). Reply ACCEPT to claim or DECLINE to pass to backup."},{"rank":2,"recipient_id":27,"name":"ENGLEWOOD MOBILE MARKET & PANTRY","street":"6450 S HALSTED ST","city":"CHICAGO","zip_code":"60621","lat":41.7768,"lon":-87.6446,"distance_km":11.33,"cold_storage":"vehicle","frozen_storage":false,"refrigerated_transport":true,"max_pallets":2,"pickup_window_hours":2,"margin_hours":6,"profile_text":"Mobile pantry operating a chilled van across South Side neighborhoods. Route flexibility is our strength - a same-day diversion is usually possible within 2 hours. Fresh produce, dairy, milk, yogurt, and prepared deli items move best for us because we distribute everything the same day.","why_them":"Has vehicle cold storage (up to 2 pallets), own refrigerated van for pickup within 2 hours (6h safety margin before 8h cutoff), and serves a high-need tract (38.2% poverty, 33.5% no-vehicle). Profile match: \"Mobile pantry operating a chilled van across South Side neighborhoods. Route flexibility is our strength - a same-day di...\"","equity_context":{"poverty_rate":38.2,"pct_no_vehicle":33.5},"draft_message":"URGENT PICKUP AVAILABLE: 60 gallons of milk and mixed yogurt crates, 2 days to date code (~2 pallet(s)) available now at 11.33 km away. Must be collected within 8h (fits your 2h reefer van window; 6h safety margin). Reply ACCEPT to claim or DECLINE to pass to backup."},{"rank":3,"recipient_id":14,"name":"WESTSIDE COMMUNITY KITCHEN","street":"1420 W MADISON ST","city":"CHICAGO","zip_code":"60607","lat":41.8819,"lon":-87.6624,"distance_km":2.73,"cold_storage":"commercial","frozen_storage":true,"refrigerated_transport":true,"max_pallets":3,"pickup_window_hours":3,"margin_hours":5,"profile_text":"Fresh produce hub serving 480 households a week on the West Side. Commercial walk-in cooler and reach-in dairy cases on site. Our refrigerated van is on the road daily and can collect within 3 hours. High need for fresh salad greens, spinach, produce, dairy, and prepared meals.","why_them":"Has commercial cold storage (up to 3 pallets), own refrigerated van for pickup within 3 hours (5h safety margin before 8h cutoff), and serves a high-need tract (31.4% poverty, 26.8% no-vehicle). Profile match: \"Fresh produce hub serving 480 households a week on the West Side. Commercial walk-in cooler and reach-in dairy cases on ...\"","equity_context":{"poverty_rate":31.4,"pct_no_vehicle":26.8},"draft_message":"URGENT PICKUP AVAILABLE: 60 gallons of milk and mixed yogurt crates, 2 days to date code (~2 pallet(s)) available now at 2.73 km away. Must be collected within 8h (fits your 3h reefer van window; 5h safety margin). Reply ACCEPT to claim or DECLINE to pass to backup."}],"rejected_decoys":[{"name":"Ridgeway Avenue Food Ministry","semantic_rank":3,"rejection_reason":"Matched #3 on meaning, but BLOCKED by logistics filter: donor requires recipient pickup van (requires_pickup_van=True), but recipient lacks refrigerated transport (refrigerated_transport=False)."},{"name":"Brookfield Family Resource Center","semantic_rank":7,"rejection_reason":"Matched #7 on meaning, but BLOCKED by logistics filter: donor requires recipient pickup van (requires_pickup_van=True), but recipient lacks refrigerated transport (refrigerated_transport=False)."},{"name":"Harborview Neighbors Trust","semantic_rank":8,"rejection_reason":"Profile contradicts itself and its storage flags: claims 'large walk-in freezer and can accept full pallets of frozen protein' in sentence 1, but states 'Storage is a single shelf in a shared cupboard and we have no freezer at present' in sentence 2. Blocked for data integrity validation."},{"name":"Third Ward Community Table","semantic_rank":9,"rejection_reason":"Matched #9 on meaning, but BLOCKED by capacity filter: only has a domestic household fridge (cold_storage='domestic') and cannot hold 2 pallets of perishables."},{"name":"Greenline Community Pantry","semantic_rank":11,"rejection_reason":"Matched #11 on meaning ('Our families ask for fresh greens and salad vegetables more than anything else'), but BLOCKED by constraint filter: cold_storage='none' (no refrigeration on site)."},{"name":"Southline Neighbors Pantry","semantic_rank":12,"rejection_reason":"Matched #12 on meaning, but BLOCKED by logistics filter: donor requires recipient pickup van (requires_pickup_van=True), but recipient lacks refrigerated transport (refrigerated_transport=False)."},{"name":"SOUTH SHORE DIAPER & INFANT ESSENTIALS BANK","semantic_rank":15,"rejection_reason":"Matched #15 on meaning, but BLOCKED by capacity filter: only has a domestic household fridge (cold_storage='domestic') and cannot hold 2 pallets of perishables."}],"declined_recipients":[{"recipient_id":186,"name":"Cedar Street Produce Alliance","status":"declined_by_recipient","reason":"Coordinator marked recipient as unavailable/declined; routed to next backup."}],"split_plan":[],"tie_breaker_explanation":null,"search_backend":"local_fallback_corpus","clock":{"food_item":"60 gallons of milk and mixed yogurt crates, 2 days to date code","queried_food":"60 gallons of milk and mixed yogurt crates, 2 days to date code","donor_deadline_hours":8,"usda_shelf_life_hours":null,"effective_window_hours":8,"storage_state":"refrigerated","requires_cold_storage":true,"requires_refrigeration":true,"requires_frozen":false,"matched_product":"Milk (plain or flavored)","matched_usda_product":"Milk (plain or flavored)","sentinel_status":"see_package","status":"see_package","shelf_life_note":"Matched USDA FoodKeeper 'Milk (plain or flavored)' â duration is sentinel 'package use-by date' (recorded as note 'see_package', never 0h). Capped by donor's 8h deadline. Consumer home-storage guidance.","caveat":"Matched USDA FoodKeeper 'Milk (plain or flavored)' â duration is sentinel 'package use-by date' (recorded as note 'see_package', never 0h). Capped by donor's 8h deadline. Consumer home-storage guidance."}}
+  "dairy:declined1": {"posting_summary":{"food_item":"60 gallons of milk and mixed yogurt crates, 2 days to date code","pallets_estimate":2,"requires_cold_storage":true,"requires_frozen":false,"donor_deadline_hours":8,"usda_shelf_life_hours":null,"effective_window_hours":8,"shelf_life_note":"Matched USDA FoodKeeper 'Milk (plain or flavored)' â duration is sentinel 'package use-by date' (recorded as note 'see_package', never 0h). Capped by donor's 8h deadline. Consumer home-storage guidance."},"matches":[{"rank":1,"recipient_id":187,"name":"Maple Street Produce Alliance","street":"3810 N LINCOLN AVE","city":"CHICAGO","zip_code":"60613","lat":41.9101,"lon":-87.6478,"distance_km":3.86,"cold_storage":"walk-in","frozen_storage":false,"refrigerated_transport":true,"max_pallets":10,"pickup_window_hours":4,"margin_hours":4,"profile_text":"Fresh produce hub with walk-in refrigeration and our own reefer truck. Roughly 600 households weekly, and perishables move through us in under two days.","why_them":"Has walk-in cold storage (up to 10 pallets), own refrigerated van for pickup within 4 hours (4h safety margin before 8h cutoff), and serves a high-need tract (14.2% poverty, 12.8% no-vehicle). Profile match: \"Fresh produce hub with walk-in refrigeration and our own reefer truck. Roughly 600 households weekly, and perishables mo...\"","equity_context":{"poverty_rate":14.2,"pct_no_vehicle":12.8},"draft_message":"URGENT PICKUP AVAILABLE: 60 gallons of milk and mixed yogurt crates, 2 days to date code (~2 pallet(s)) available now at 3.86 km away. Must be collected within 8h (fits your 4h reefer van window; 4h safety margin). Reply ACCEPT to claim or DECLINE to pass to backup."},{"rank":2,"recipient_id":27,"name":"ENGLEWOOD MOBILE MARKET & PANTRY","street":"6450 S HALSTED ST","city":"CHICAGO","zip_code":"60621","lat":41.7768,"lon":-87.6446,"distance_km":11.33,"cold_storage":"vehicle","frozen_storage":false,"refrigerated_transport":true,"max_pallets":2,"pickup_window_hours":2,"margin_hours":6,"profile_text":"Mobile pantry operating a chilled van across South Side neighborhoods. Route flexibility is our strength - a same-day diversion is usually possible within 2 hours. Fresh produce, dairy, milk, yogurt, and prepared deli items move best for us because we distribute everything the same day.","why_them":"Has vehicle cold storage (up to 2 pallets), own refrigerated van for pickup within 2 hours (6h safety margin before 8h cutoff), and serves a high-need tract (38.2% poverty, 33.5% no-vehicle). Profile match: \"Mobile pantry operating a chilled van across South Side neighborhoods. Route flexibility is our strength - a same-day di...\"","equity_context":{"poverty_rate":38.2,"pct_no_vehicle":33.5},"draft_message":"URGENT PICKUP AVAILABLE: 60 gallons of milk and mixed yogurt crates, 2 days to date code (~2 pallet(s)) available now at 11.33 km away. Must be collected within 8h (fits your 2h reefer van window; 6h safety margin). Reply ACCEPT to claim or DECLINE to pass to backup."},{"rank":3,"recipient_id":14,"name":"WESTSIDE COMMUNITY KITCHEN","street":"1420 W MADISON ST","city":"CHICAGO","zip_code":"60607","lat":41.8819,"lon":-87.6624,"distance_km":2.73,"cold_storage":"commercial","frozen_storage":true,"refrigerated_transport":true,"max_pallets":3,"pickup_window_hours":3,"margin_hours":5,"profile_text":"Fresh produce hub serving 480 households a week on the West Side. Commercial walk-in cooler and reach-in dairy cases on site. Our refrigerated van is on the road daily and can collect within 3 hours. High need for fresh salad greens, spinach, produce, dairy, and prepared meals.","why_them":"Has commercial cold storage (up to 3 pallets), own refrigerated van for pickup within 3 hours (5h safety margin before 8h cutoff), and serves a high-need tract (31.4% poverty, 26.8% no-vehicle). Profile match: \"Fresh produce hub serving 480 households a week on the West Side. Commercial walk-in cooler and reach-in dairy cases on ...\"","equity_context":{"poverty_rate":31.4,"pct_no_vehicle":26.8},"draft_message":"URGENT PICKUP AVAILABLE: 60 gallons of milk and mixed yogurt crates, 2 days to date code (~2 pallet(s)) available now at 2.73 km away. Must be collected within 8h (fits your 3h reefer van window; 5h safety margin). Reply ACCEPT to claim or DECLINE to pass to backup."}],"rejected_decoys":[{"name":"Ridgeway Avenue Food Ministry","semantic_rank":3,"rejection_reason":"Matched #3 on meaning, but BLOCKED by logistics filter: donor requires recipient pickup van (requires_pickup_van=True), but recipient lacks refrigerated transport (refrigerated_transport=False)."},{"name":"Brookfield Family Resource Center","semantic_rank":7,"rejection_reason":"Matched #7 on meaning, but BLOCKED by logistics filter: donor requires recipient pickup van (requires_pickup_van=True), but recipient lacks refrigerated transport (refrigerated_transport=False)."},{"name":"Harborview Neighbors Trust","semantic_rank":8,"rejection_reason":"Profile contradicts itself and its storage flags: claims 'large walk-in freezer and can accept full pallets of frozen protein' in sentence 1, but states 'Storage is a single shelf in a shared cupboard and we have no freezer at present' in sentence 2. Blocked for data integrity validation."},{"name":"Third Ward Community Table","semantic_rank":9,"rejection_reason":"Matched #9 on meaning, but BLOCKED by capacity filter: only has a domestic household fridge (cold_storage='domestic') and cannot hold 2 pallets of perishables."},{"name":"Greenline Community Pantry","semantic_rank":11,"rejection_reason":"Matched #11 on meaning ('Our families ask for fresh greens and salad vegetables more than anything else'), but BLOCKED by constraint filter: cold_storage='none' (no refrigeration on site)."},{"name":"Southline Neighbors Pantry","semantic_rank":12,"rejection_reason":"Matched #12 on meaning, but BLOCKED by logistics filter: donor requires recipient pickup van (requires_pickup_van=True), but recipient lacks refrigerated transport (refrigerated_transport=False)."},{"name":"SOUTH SHORE DIAPER & INFANT ESSENTIALS BANK","semantic_rank":15,"rejection_reason":"Matched #15 on meaning, but BLOCKED by capacity filter: only has a domestic household fridge (cold_storage='domestic') and cannot hold 2 pallets of perishables."}],"declined_recipients":[{"recipient_id":186,"name":"Cedar Street Produce Alliance","status":"declined_by_recipient","reason":"Coordinator marked recipient as unavailable/declined; routed to next backup."}],"split_plan":[],"tie_breaker_explanation":null,"search_backend":"local_fallback_corpus","clock":{"food_item":"60 gallons of milk and mixed yogurt crates, 2 days to date code","queried_food":"60 gallons of milk and mixed yogurt crates, 2 days to date code","donor_deadline_hours":8,"usda_shelf_life_hours":null,"effective_window_hours":8,"storage_state":"refrigerated","requires_cold_storage":true,"requires_refrigeration":true,"requires_frozen":false,"matched_product":"Milk (plain or flavored)","matched_usda_product":"Milk (plain or flavored)","sentinel_status":"see_package","status":"see_package","shelf_life_note":"Matched USDA FoodKeeper 'Milk (plain or flavored)' â duration is sentinel 'package use-by date' (recorded as note 'see_package', never 0h). Capped by donor's 8h deadline. Consumer home-storage guidance.","caveat":"Matched USDA FoodKeeper 'Milk (plain or flavored)' â duration is sentinel 'package use-by date' (recorded as note 'see_package', never 0h). Capped by donor's 8h deadline. Consumer home-storage guidance."}},
+  "cooler": {"posting_summary":{"food_item":"Walk-in cooler failed overnight: 5 pallets of milk, yogurt and produce, must move in 4 hours, needs cold storage","pallets_estimate":5,"requires_cold_storage":true,"requires_frozen":false,"donor_deadline_hours":4,"usda_shelf_life_hours":null,"effective_window_hours":4,"shelf_life_note":"Matched USDA FoodKeeper 'Milk (plain or flavored)' â duration is sentinel 'package use-by date' (recorded as note 'see_package', never 0h). Capped by donor's 4h deadline. Consumer home-storage guidance."},"matches":[{"rank":1,"recipient_id":186,"name":"Cedar Street Produce Alliance","street":"2140 S KEDZIE AVE","city":"CHICAGO","zip_code":"60623","lat":41.8631,"lon":-87.6518,"distance_km":2.47,"cold_storage":"walk-in","frozen_storage":false,"refrigerated_transport":true,"max_pallets":10,"pickup_window_hours":4,"margin_hours":0,"profile_text":"Produce-focused redistribution with a walk-in cooler and a refrigerated van. We turn fresh fruit and vegetables within 48 hours and serve about 600 households a week.","why_them":"Has walk-in cold storage (up to 10 pallets), own refrigerated van for pickup within 4 hours (0h safety margin before 4h cutoff), and serves a high-need tract (34.8% poverty, 31.2% no-vehicle). Profile match: \"Produce-focused redistribution with a walk-in cooler and a refrigerated van. We turn fresh fruit and vegetables within 4...\" | TIE-BREAKER NOTE: Cedar Street Produce Alliance and Maple Street Produce Alliance are operationally identical (both have walk-in coolers, reefer vans, loading docks, 10-pallet capacity, and serve ~600 households/wk). Ranked Cedar Street Produce Alliance ahead based on higher neighborhood food-equity need (34.8% poverty & 31.2% no-vehicle households vs. 14.2% poverty & 12.8% no-vehicle) and shorter distance (2.47 km vs. 3.86 km).","equity_context":{"poverty_rate":34.8,"pct_no_vehicle":31.2},"draft_message":"URGENT PICKUP AVAILABLE: Walk-in cooler failed overnight: 5 pallets of milk, yogurt and produce, must move in 4 hours, needs cold storage (~5 pallet(s)) available now at 2.47 km away. Must be collected within 4h (fits your 4h reefer van window; 0h safety margin). Reply ACCEPT to claim or DECLINE to pass to backup."},{"rank":2,"recipient_id":187,"name":"Maple Street Produce Alliance","street":"3810 N LINCOLN AVE","city":"CHICAGO","zip_code":"60613","lat":41.9101,"lon":-87.6478,"distance_km":3.86,"cold_storage":"walk-in","frozen_storage":false,"refrigerated_transport":true,"max_pallets":10,"pickup_window_hours":4,"margin_hours":0,"profile_text":"Fresh produce hub with walk-in refrigeration and our own reefer truck. Roughly 600 households weekly, and perishables move through us in under two days.","why_them":"Has walk-in cold storage (up to 10 pallets), own refrigerated van for pickup within 4 hours (0h safety margin before 4h cutoff), and serves a high-need tract (14.2% poverty, 12.8% no-vehicle). Profile match: \"Fresh produce hub with walk-in refrigeration and our own reefer truck. Roughly 600 households weekly, and perishables mo...\" | TIE-BREAKER NOTE: Cedar Street Produce Alliance and Maple Street Produce Alliance are operationally identical (both have walk-in coolers, reefer vans, loading docks, 10-pallet capacity, and serve ~600 households/wk). Ranked Cedar Street Produce Alliance ahead based on higher neighborhood food-equity need (34.8% poverty & 31.2% no-vehicle households vs. 14.2% poverty & 12.8% no-vehicle) and shorter distance (2.47 km vs. 3.86 km).","equity_context":{"poverty_rate":14.2,"pct_no_vehicle":12.8},"draft_message":"URGENT PICKUP AVAILABLE: Walk-in cooler failed overnight: 5 pallets of milk, yogurt and produce, must move in 4 hours, needs cold storage (~5 pallet(s)) available now at 3.86 km away. Must be collected within 4h (fits your 4h reefer van window; 0h safety margin). Reply ACCEPT to claim or DECLINE to pass to backup."},{"rank":3,"recipient_id":14,"name":"WESTSIDE COMMUNITY KITCHEN","street":"1420 W MADISON ST","city":"CHICAGO","zip_code":"60607","lat":41.8819,"lon":-87.6624,"distance_km":2.73,"cold_storage":"commercial","frozen_storage":true,"refrigerated_transport":true,"max_pallets":3,"pickup_window_hours":3,"margin_hours":1,"profile_text":"Fresh produce hub serving 480 households a week on the West Side. Commercial walk-in cooler and reach-in dairy cases on site. Our refrigerated van is on the road daily and can collect within 3 hours. High need for fresh salad greens, spinach, produce, dairy, and prepared meals.","why_them":"Has commercial cold storage (up to 3 pallets), own refrigerated van for pickup within 3 hours (1h safety margin before 4h cutoff), and serves a high-need tract (31.4% poverty, 26.8% no-vehicle). Profile match: \"Fresh produce hub serving 480 households a week on the West Side. Commercial walk-in cooler and reach-in dairy cases on ...\"","equity_context":{"poverty_rate":31.4,"pct_no_vehicle":26.8},"draft_message":"URGENT PICKUP AVAILABLE: Walk-in cooler failed overnight: 5 pallets of milk, yogurt and produce, must move in 4 hours, needs cold storage (~3 pallet(s)) available now at 2.73 km away. Must be collected within 4h (fits your 3h reefer van window; 1h safety margin). Reply ACCEPT to claim or DECLINE to pass to backup."}],"rejected_decoys":[{"name":"Ridgeway Avenue Food Ministry","semantic_rank":6,"rejection_reason":"Matched #6 on meaning, but BLOCKED by logistics filter: donor requires recipient pickup van (requires_pickup_van=True), but recipient lacks refrigerated transport (refrigerated_transport=False)."},{"name":"Southline Neighbors Pantry","semantic_rank":7,"rejection_reason":"Matched #7 on meaning, but BLOCKED by logistics filter: donor requires recipient pickup van (requires_pickup_van=True), but recipient lacks refrigerated transport (refrigerated_transport=False)."},{"name":"GREATER MIDWEST REGIONAL FOOD DEPOSITORY","semantic_rank":8,"rejection_reason":"Matched #8 on meaning, but BLOCKED by clock filter: pickup_window_hours=8h exceeds the 4h effective spoilage/donor deadline."},{"name":"Brookfield Family Resource Center","semantic_rank":9,"rejection_reason":"Matched #9 on meaning, but BLOCKED by logistics filter: donor requires recipient pickup van (requires_pickup_van=True), but recipient lacks refrigerated transport (refrigerated_transport=False)."},{"name":"Greenline Community Pantry","semantic_rank":10,"rejection_reason":"Matched #10 on meaning ('Our families ask for fresh greens and salad vegetables more than anything else'), but BLOCKED by constraint filter: cold_storage='none' (no refrigeration on site)."},{"name":"Harborview Neighbors Trust","semantic_rank":12,"rejection_reason":"Profile contradicts itself and its storage flags: claims 'large walk-in freezer and can accept full pallets of frozen protein' in sentence 1, but states 'Storage is a single shelf in a shared cupboard and we have no freezer at present' in sentence 2. Blocked for data integrity validation."},{"name":"Third Ward Community Table","semantic_rank":13,"rejection_reason":"Matched #13 on meaning, but BLOCKED by capacity filter: only has a domestic household fridge (cold_storage='domestic') and cannot hold 5 pallets of perishables."},{"name":"SOUTH SHORE DIAPER & INFANT ESSENTIALS BANK","semantic_rank":15,"rejection_reason":"Matched #15 on meaning, but BLOCKED by capacity filter: only has a domestic household fridge (cold_storage='domestic') and cannot hold 5 pallets of perishables."}],"declined_recipients":[],"split_plan":[{"recipient_id":186,"name":"Cedar Street Produce Alliance","allocated_pallets":3,"max_pallets":10,"distance_km":2.47,"draft_split_message":"SPLIT LOAD DISPATCH (3 of 5 pallets): Walk-in cooler failed overnight: 5 pallets of milk, yogurt and produce, must move in 4 hours, needs cold storage ready for collection (4h window). Reply ACCEPT to claim your 3-pallet share."},{"recipient_id":187,"name":"Maple Street Produce Alliance","allocated_pallets":2,"max_pallets":10,"distance_km":3.86,"draft_split_message":"SPLIT LOAD DISPATCH (2 of 5 pallets): Walk-in cooler failed overnight: 5 pallets of milk, yogurt and produce, must move in 4 hours, needs cold storage ready for collection (4h window). Reply ACCEPT to claim your 2-pallet share."}],"tie_breaker_explanation":"TIE-BREAKER NOTE: Cedar Street Produce Alliance and Maple Street Produce Alliance are operationally identical (both have walk-in coolers, reefer vans, loading docks, 10-pallet capacity, and serve ~600 households/wk). Ranked Cedar Street Produce Alliance ahead based on higher neighborhood food-equity need (34.8% poverty & 31.2% no-vehicle households vs. 14.2% poverty & 12.8% no-vehicle) and shorter distance (2.47 km vs. 3.86 km).","search_backend":"local_fallback_corpus","clock":{"food_item":"Walk-in cooler failed overnight: 5 pallets of milk, yogurt and produce, must move in 4 hours, needs cold storage","queried_food":"Walk-in cooler failed overnight: 5 pallets of milk, yogurt and produce, must move in 4 hours, needs cold storage","donor_deadline_hours":4,"usda_shelf_life_hours":null,"effective_window_hours":4,"storage_state":"refrigerated","requires_cold_storage":true,"requires_refrigeration":true,"requires_frozen":false,"matched_product":"Milk (plain or flavored)","matched_usda_product":"Milk (plain or flavored)","sentinel_status":"see_package","status":"see_package","shelf_life_note":"Matched USDA FoodKeeper 'Milk (plain or flavored)' â duration is sentinel 'package use-by date' (recorded as note 'see_package', never 0h). Capped by donor's 4h deadline. Consumer home-storage guidance.","caveat":"Matched USDA FoodKeeper 'Milk (plain or flavored)' â duration is sentinel 'package use-by date' (recorded as note 'see_package', never 0h). Capped by donor's 4h deadline. Consumer home-storage guidance."}},
+  "cooler:declined1": {"posting_summary":{"food_item":"Walk-in cooler failed overnight: 5 pallets of milk, yogurt and produce, must move in 4 hours, needs cold storage","pallets_estimate":5,"requires_cold_storage":true,"requires_frozen":false,"donor_deadline_hours":4,"usda_shelf_life_hours":null,"effective_window_hours":4,"shelf_life_note":"Matched USDA FoodKeeper 'Milk (plain or flavored)' â duration is sentinel 'package use-by date' (recorded as note 'see_package', never 0h). Capped by donor's 4h deadline. Consumer home-storage guidance."},"matches":[{"rank":1,"recipient_id":187,"name":"Maple Street Produce Alliance","street":"3810 N LINCOLN AVE","city":"CHICAGO","zip_code":"60613","lat":41.9101,"lon":-87.6478,"distance_km":3.86,"cold_storage":"walk-in","frozen_storage":false,"refrigerated_transport":true,"max_pallets":10,"pickup_window_hours":4,"margin_hours":0,"profile_text":"Fresh produce hub with walk-in refrigeration and our own reefer truck. Roughly 600 households weekly, and perishables move through us in under two days.","why_them":"Has walk-in cold storage (up to 10 pallets), own refrigerated van for pickup within 4 hours (0h safety margin before 4h cutoff), and serves a high-need tract (14.2% poverty, 12.8% no-vehicle). Profile match: \"Fresh produce hub with walk-in refrigeration and our own reefer truck. Roughly 600 households weekly, and perishables mo...\"","equity_context":{"poverty_rate":14.2,"pct_no_vehicle":12.8},"draft_message":"URGENT PICKUP AVAILABLE: Walk-in cooler failed overnight: 5 pallets of milk, yogurt and produce, must move in 4 hours, needs cold storage (~5 pallet(s)) available now at 3.86 km away. Must be collected within 4h (fits your 4h reefer van window; 0h safety margin). Reply ACCEPT to claim or DECLINE to pass to backup."},{"rank":2,"recipient_id":14,"name":"WESTSIDE COMMUNITY KITCHEN","street":"1420 W MADISON ST","city":"CHICAGO","zip_code":"60607","lat":41.8819,"lon":-87.6624,"distance_km":2.73,"cold_storage":"commercial","frozen_storage":true,"refrigerated_transport":true,"max_pallets":3,"pickup_window_hours":3,"margin_hours":1,"profile_text":"Fresh produce hub serving 480 households a week on the West Side. Commercial walk-in cooler and reach-in dairy cases on site. Our refrigerated van is on the road daily and can collect within 3 hours. High need for fresh salad greens, spinach, produce, dairy, and prepared meals.","why_them":"Has commercial cold storage (up to 3 pallets), own refrigerated van for pickup within 3 hours (1h safety margin before 4h cutoff), and serves a high-need tract (31.4% poverty, 26.8% no-vehicle). Profile match: \"Fresh produce hub serving 480 households a week on the West Side. Commercial walk-in cooler and reach-in dairy cases on ...\"","equity_context":{"poverty_rate":31.4,"pct_no_vehicle":26.8},"draft_message":"URGENT PICKUP AVAILABLE: Walk-in cooler failed overnight: 5 pallets of milk, yogurt and produce, must move in 4 hours, needs cold storage (~3 pallet(s)) available now at 2.73 km away. Must be collected within 4h (fits your 3h reefer van window; 1h safety margin). Reply ACCEPT to claim or DECLINE to pass to backup."},{"rank":3,"recipient_id":27,"name":"ENGLEWOOD MOBILE MARKET & PANTRY","street":"6450 S HALSTED ST","city":"CHICAGO","zip_code":"60621","lat":41.7768,"lon":-87.6446,"distance_km":11.33,"cold_storage":"vehicle","frozen_storage":false,"refrigerated_transport":true,"max_pallets":2,"pickup_window_hours":2,"margin_hours":2,"profile_text":"Mobile pantry operating a chilled van across South Side neighborhoods. Route flexibility is our strength - a same-day diversion is usually possible within 2 hours. Fresh produce, dairy, milk, yogurt, and prepared deli items move best for us because we distribute everything the same day.","why_them":"Has vehicle cold storage (up to 2 pallets), own refrigerated van for pickup within 2 hours (2h safety margin before 4h cutoff), and serves a high-need tract (38.2% poverty, 33.5% no-vehicle). Profile match: \"Mobile pantry operating a chilled van across South Side neighborhoods. Route flexibility is our strength - a same-day di...\"","equity_context":{"poverty_rate":38.2,"pct_no_vehicle":33.5},"draft_message":"URGENT PICKUP AVAILABLE: Walk-in cooler failed overnight: 5 pallets of milk, yogurt and produce, must move in 4 hours, needs cold storage (~2 pallet(s)) available now at 11.33 km away. Must be collected within 4h (fits your 2h reefer van window; 2h safety margin). Reply ACCEPT to claim or DECLINE to pass to backup."}],"rejected_decoys":[{"name":"Ridgeway Avenue Food Ministry","semantic_rank":6,"rejection_reason":"Matched #6 on meaning, but BLOCKED by logistics filter: donor requires recipient pickup van (requires_pickup_van=True), but recipient lacks refrigerated transport (refrigerated_transport=False)."},{"name":"Southline Neighbors Pantry","semantic_rank":7,"rejection_reason":"Matched #7 on meaning, but BLOCKED by logistics filter: donor requires recipient pickup van (requires_pickup_van=True), but recipient lacks refrigerated transport (refrigerated_transport=False)."},{"name":"GREATER MIDWEST REGIONAL FOOD DEPOSITORY","semantic_rank":8,"rejection_reason":"Matched #8 on meaning, but BLOCKED by clock filter: pickup_window_hours=8h exceeds the 4h effective spoilage/donor deadline."},{"name":"Brookfield Family Resource Center","semantic_rank":9,"rejection_reason":"Matched #9 on meaning, but BLOCKED by logistics filter: donor requires recipient pickup van (requires_pickup_van=True), but recipient lacks refrigerated transport (refrigerated_transport=False)."},{"name":"Greenline Community Pantry","semantic_rank":10,"rejection_reason":"Matched #10 on meaning ('Our families ask for fresh greens and salad vegetables more than anything else'), but BLOCKED by constraint filter: cold_storage='none' (no refrigeration on site)."},{"name":"Harborview Neighbors Trust","semantic_rank":12,"rejection_reason":"Profile contradicts itself and its storage flags: claims 'large walk-in freezer and can accept full pallets of frozen protein' in sentence 1, but states 'Storage is a single shelf in a shared cupboard and we have no freezer at present' in sentence 2. Blocked for data integrity validation."},{"name":"Third Ward Community Table","semantic_rank":13,"rejection_reason":"Matched #13 on meaning, but BLOCKED by capacity filter: only has a domestic household fridge (cold_storage='domestic') and cannot hold 5 pallets of perishables."},{"name":"SOUTH SHORE DIAPER & INFANT ESSENTIALS BANK","semantic_rank":15,"rejection_reason":"Matched #15 on meaning, but BLOCKED by capacity filter: only has a domestic household fridge (cold_storage='domestic') and cannot hold 5 pallets of perishables."}],"declined_recipients":[{"recipient_id":186,"name":"Cedar Street Produce Alliance","status":"declined_by_recipient","reason":"Coordinator marked recipient as unavailable/declined; routed to next backup."}],"split_plan":[{"recipient_id":187,"name":"Maple Street Produce Alliance","allocated_pallets":3,"max_pallets":10,"distance_km":3.86,"draft_split_message":"SPLIT LOAD DISPATCH (3 of 5 pallets): Walk-in cooler failed overnight: 5 pallets of milk, yogurt and produce, must move in 4 hours, needs cold storage ready for collection (4h window). Reply ACCEPT to claim your 3-pallet share."},{"recipient_id":14,"name":"WESTSIDE COMMUNITY KITCHEN","allocated_pallets":2,"max_pallets":3,"distance_km":2.73,"draft_split_message":"SPLIT LOAD DISPATCH (2 of 5 pallets): Walk-in cooler failed overnight: 5 pallets of milk, yogurt and produce, must move in 4 hours, needs cold storage ready for collection (4h window). Reply ACCEPT to claim your 2-pallet share."}],"tie_breaker_explanation":null,"search_backend":"local_fallback_corpus","clock":{"food_item":"Walk-in cooler failed overnight: 5 pallets of milk, yogurt and produce, must move in 4 hours, needs cold storage","queried_food":"Walk-in cooler failed overnight: 5 pallets of milk, yogurt and produce, must move in 4 hours, needs cold storage","donor_deadline_hours":4,"usda_shelf_life_hours":null,"effective_window_hours":4,"storage_state":"refrigerated","requires_cold_storage":true,"requires_refrigeration":true,"requires_frozen":false,"matched_product":"Milk (plain or flavored)","matched_usda_product":"Milk (plain or flavored)","sentinel_status":"see_package","status":"see_package","shelf_life_note":"Matched USDA FoodKeeper 'Milk (plain or flavored)' â duration is sentinel 'package use-by date' (recorded as note 'see_package', never 0h). Capped by donor's 4h deadline. Consumer home-storage guidance.","caveat":"Matched USDA FoodKeeper 'Milk (plain or flavored)' â duration is sentinel 'package use-by date' (recorded as note 'see_package', never 0h). Capped by donor's 4h deadline. Consumer home-storage guidance."}}
 };
 function demoResponse(req) {
   const t = (req.posting_text || "").toLowerCase();
-  const key = t.includes("milk") || t.includes("yogurt") || t.includes("dairy") ? "dairy" : t.includes("tray") || t.includes("prepared") || t.includes("chicken") ? "trays" : "spinach";
+  const key = t.includes("cooler failed") || /\b5 pallets\b/.test(t) ? "cooler" : t.includes("milk") || t.includes("yogurt") ? "dairy" : t.includes("tray") || t.includes("prepared") || t.includes("chicken") ? "trays" : "spinach";
   const no = (req.declined_recipient_names || []).map(n => n.trim().toLowerCase());
   const base = (no.length && DEMO[key + ":declined1"]) || DEMO[key];
   if (!base) return null;
@@ -439,231 +406,314 @@ function demoResponse(req) {
   if (d.clock) { d.clock.donor_deadline_hours = req.donor_deadline_hours; d.clock.effective_window_hours = Math.min(req.donor_deadline_hours, d.clock.usda_shelf_life_hours || req.donor_deadline_hours); }
   return d;
 }
-function readForm() {
-  return { posting_text: $("posting_text").value.trim(), pallets_offered: parseInt($("pallets").value || "1", 10), donor_deadline_hours: parseFloat($("hours").value || "6"),
-    requires_cold_storage: $("req_cold").checked, requires_frozen: false, requires_pickup_van: $("req_van").checked, donor_lat: DONOR.lat, donor_lon: DONOR.lon, declined_recipient_names: declined };
-}
-function showScreen(name) {
-  const results = name === "results";
-  $("screenOffer").hidden = results;
-  $("screenResults").hidden = !results;
-  $("summary").hidden = !results;
-  $("app").dataset.screen = name;
-  if (results) setTimeout(() => map && map.invalidateSize(), 60);
-}
-function summarize(req) {
-  const bits = [`<b>${esc(req.posting_text)}</b>`, `${req.pallets_offered} pallet${req.pallets_offered > 1 ? "s" : ""}`, `needs to go in ${hrs(req.donor_deadline_hours)}`];
-  if (req.requires_cold_storage) bits.push("❄️ keep it cold");
-  if (req.requires_pickup_van) bits.push("🚐 they pick up");
-  $("offerSummary").innerHTML = bits.join(" · ");
-}
-async function run() {
-  lastReq = readForm();
-  if (!lastReq.posting_text) { $("posting_text").focus(); toast("Tell us what the food is first."); return; }
-  summarize(lastReq);
-  showScreen("results");
-  $("findBtn").disabled = true;
-  $("stack").innerHTML = `<section class="card"><p class="empty"><span class="spin"></span>Checking who can keep it cold, pick it up, and get there in time…</p></section>`;
-  let raw = null;
-  try {
-    const res = await fetch("/api/match", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(lastReq) });
-    if (!res.ok) throw new Error("HTTP " + res.status);
-    raw = await res.json();
-    if (!raw || !Array.isArray(raw.matches)) throw new Error("not a match result");
-    demoMode = false;
-  } catch (err) {
-    raw = demoResponse(lastReq);
-    demoMode = true;
-    if (!raw) {
-      $("stack").innerHTML = `<section class="card error"><b>Couldn't reach the matcher.</b><p class="empty">${esc(err.message)}. Check the server is running, then press "Find who can take it" again.</p></section>`;
-      $("findBtn").disabled = false;
-      return;
-    }
-  }
-  data = normalize(raw, lastReq);
-  $("findBtn").disabled = false;
-  clockEnd = Date.now() + data.clock.effective_window_hours * 3600 * 1000;
-  const live = data.data_source === "bigquery_live";
-  $("srcChip").innerHTML = live ? '<span class="dot"></span> <b>Live</b> BigQuery vector search' : '🧪 <b>Demo data</b>';
-  $("srcChip").classList.toggle("live", live);
-  renderStack(data);
-  drawMap(data);
-  tickClock();
-}
-function tickClock() {
-  if (!clockEnd) return;
-  const left = Math.max(0, clockEnd - Date.now());
-  const h = Math.floor(left / 3.6e6), m = Math.floor(left % 3.6e6 / 6e4), s = Math.floor(left % 6e4 / 1000);
-  $("clockV").textContent = `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-  $("clockBy").textContent = "Needs to go by " + new Date(clockEnd).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }).toLowerCase();
-}
-setInterval(tickClock, 1000);
 
-function lights(m, d) {
-  const cold = m.cold_storage !== "none" && (!d.posting_summary.requires_frozen || m.frozen_storage);
+/* ==================================================================
+   api — the seam between this page and the backend.
+   Real route first; a mock with data otherwise. A lane that builds the real thing swaps
+   one function here and nothing else on the page changes.
+
+   api.match(req)                POST /api/match         exists   → MatchResponse (Contract 1)
+   api.offers.list()             GET  /api/offers        mock     → Offer[]
+   api.offers.create(offer)      POST /api/offers        mock     → Offer (with id)
+   api.offers.update(id, patch)  PATCH /api/offers/{id}  mock     → Offer
+   api.offers.reset(list)        demo only
+
+   Offer = {
+     id, createdAt, deadlineAt (ISO), donor (who called),
+     req: MatchRequest, result: MatchResponse | null,
+     stage: "new" | "matched" | "sent" | "accepted" | "picked_up" | "delivered" | "nobody",
+     stamps: { [stage]: ISO },   declined: [{ name, at }],   split: boolean,   example: boolean
+   }
+   Mock storage: localStorage "rescue.offers.v1" (this browser only).
+================================================================== */
+const STORE_KEY = "rescue.offers.v1";
+let mem = null;   // in-memory copy so the page still works when storage is blocked
+const store = {
+  read() { try { return JSON.parse(localStorage.getItem(STORE_KEY) || "[]"); } catch { return []; } },
+  write(list) { try { localStorage.setItem(STORE_KEY, JSON.stringify(list)); } catch { /* keep in memory only */ } },
+};
+const api = {
+  async match(req) {
+    let raw = null;
+    try {
+      const res = await fetch("/api/match", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(req) });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      raw = await res.json();
+      if (!raw || !Array.isArray(raw.matches)) throw new Error("not a match result");
+    } catch {
+      raw = demoResponse(req);
+      if (!raw) throw new Error("Couldn't reach the matcher");
+    }
+    return normalize(raw, req);
+  },
+  offers: {
+    async list() { if (!mem) mem = store.read(); return mem; },
+    async create(o) { const list = await this.list(); o.id = o.id || "o-" + Date.now().toString(36); list.push(o); store.write(list); return o; },
+    async update(id, patch) { const list = await this.list(); const o = list.find(x => x.id === id); if (!o) throw new Error("no offer " + id); Object.assign(o, patch); store.write(list); return o; },
+    async reset(list) { mem = list; store.write(list); },
+  },
+};
+
+/* Example offers already in flight, so the board shows a real afternoon on first open. */
+function exampleOffers() {
+  const now = Date.now(), m = 60000;
+  const make = (key, stage, minsLeft, ageMin, stamped) => {
+    const c = CALLS[key];
+    const req = { posting_text: c.text, pallets_offered: pallets(c.qty, c.unit), donor_deadline_hours: c.hours, requires_cold_storage: c.cold, requires_frozen: false, requires_pickup_van: c.van, donor_lat: DONOR.lat, donor_lon: DONOR.lon, declined_recipient_names: [] };
+    const raw = demoResponse(req);
+    const stamps = {}; stamped.forEach(([s, ago]) => { stamps[s] = new Date(now - ago * m).toISOString(); });
+    return { id: "ex-" + key, createdAt: new Date(now - ageMin * m).toISOString(), deadlineAt: new Date(now + minsLeft * m).toISOString(), donor: c.donor, req, result: raw ? normalize(raw, req) : null, stage, stamps, declined: [], split: false, example: true };
+  };
+  return [
+    make("trays", "sent", 42, 25, [["matched", 24], ["sent", 23]]),
+    make("dairy", "picked_up", 6 * 60 + 10, 110, [["matched", 108], ["sent", 107], ["accepted", 95], ["picked_up", 12]]),
+  ];
+}
+async function seedIfEmpty() {
+  const list = await api.offers.list();
+  let seeded = false; try { seeded = localStorage.getItem("rescue.seeded.v1") === "1"; } catch { /* no storage */ }
+  if (!list.length && !seeded) { await api.offers.reset(exampleOffers()); try { localStorage.setItem("rescue.seeded.v1", "1"); } catch { /* no storage */ } }
+}
+
+/* ---------------- Screens ---------------- */
+let standalone = true;   // true when no backend answers: demo data + schematic map
+let current = null;
+let unit = "crates", collects = "van";
+
+function go(hash) { if (location.hash === hash) render(); else location.hash = hash; }
+async function render() {
+  const h = location.hash || "#board";
+  const which = h === "#new" ? "new" : /^#(o|ex)-/.test(h) ? "offer" : "board";
+  $("screenBoard").hidden = which !== "board";
+  $("screenNew").hidden = which !== "new";
+  $("screenOffer").hidden = which !== "offer";
+  $("newBtn").hidden = which === "new";
+  if (which === "board") await renderBoard();
+  else if (which === "new") renderNew();
+  else await renderOffer(h.slice(1));
+  await renderFoot();
+}
+
+async function renderBoard() {
+  const list = (await api.offers.list()).slice().sort((a, b) => (a.stage === "delivered") - (b.stage === "delivered") || new Date(a.deadlineAt) - new Date(b.deadlineAt));
+  const el = $("screenBoard");
+  if (!list.length) {
+    el.innerHTML = `<div class="empty-board"><h2>Nothing in flight</h2><p>When a donor calls, add it here.</p><a class="btn primary" href="#new">📞 A donor called</a></div>`;
+    return;
+  }
+  el.innerHTML = `<h2>Today · ${list.filter(o => o.stage !== "delivered").length} in flight</h2>` + list.map(o => {
+    const top = o.result && o.result.matches[0];
+    const ms = left(o.deadlineAt);
+    const noReply = o.stage === "sent" && o.stamps.sent && Date.now() - new Date(o.stamps.sent).getTime() > 15 * 60000;
+    const pantry = top ? " → " + nice(top.name) : o.stage === "nobody" ? " → no pantry yet" : "";
+    return `<button class="row" type="button" data-id="${o.id}">
+      <div><div class="what">${esc(o.req.posting_text)}</div><div class="who">${esc(o.donor || "Donor")}${esc(pantry)}${o.example ? '<span class="ex">example</span>' : ""}</div></div>
+      <div class="right">
+        <span class="lc num ${leftCls(ms, o.stage)}" data-clock="${o.deadlineAt}" data-stage="${o.stage}" data-fmt="short">${o.stage === "delivered" ? "✓ " + fmtT(o.stamps.delivered) : leftShort(ms)}</span>
+        <span class="stage ${o.stage}">${STAGE_LABEL[o.stage]}${noReply ? " · no reply yet" : ""}</span>
+      </div></button>`;
+  }).join("");
+  el.querySelectorAll(".row").forEach(b => b.addEventListener("click", () => go("#" + b.dataset.id)));
+}
+
+function timeValue(d) { return `${String(d.getHours()).padStart(2, "0")}:${String(Math.floor(d.getMinutes() / 5) * 5).padStart(2, "0")}`; }
+function hoursUntil(t) {
+  const [hh, mm] = (t || "").split(":").map(Number);
+  if (Number.isNaN(hh)) return 6;
+  const d = new Date(); d.setHours(hh, mm || 0, 0, 0);
+  if (d.getTime() <= Date.now() + 60000) d.setDate(d.getDate() + 1);
+  return Math.max(0.5, Math.round((d.getTime() - Date.now()) / 3.6e5) / 10);
+}
+function fillCall(key) {
+  const c = CALLS[key];
+  $("donor").value = c.donor; $("posting_text").value = c.text; $("qty").value = c.qty;
+  setSeg("unit", "u", c.unit); unit = c.unit;
+  $("goby").value = timeValue(new Date(Date.now() + c.hours * 3.6e6));
+  $("cold").checked = c.cold;
+  setSeg("collects", "v", c.van ? "van" : "driver"); collects = c.van ? "van" : "driver";
+  [...$("calls").children].forEach(b => b.setAttribute("aria-pressed", b.dataset.id === key ? "true" : "false"));
+}
+function setSeg(id, attr, val) { $(id).querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", b.dataset[attr] === val ? "true" : "false")); }
+function renderNew() {
+  if (!$("calls").children.length) {
+    $("calls").innerHTML = Object.entries(CALLS).map(([k, c]) => `<button class="call" type="button" data-id="${k}" aria-pressed="false"><span class="t">${c.label}</span><span class="d">${c.desc}</span></button>`).join("");
+    fillCall("spinach");
+  }
+  setTimeout(() => $("posting_text").focus(), 50);
+}
+async function submitOffer(e) {
+  e.preventDefault();
+  const text = $("posting_text").value.trim();
+  if (!text) { $("posting_text").focus(); toast("Tell us what the food is first."); return; }
+  const hours = hoursUntil($("goby").value);
+  const req = { posting_text: text, pallets_offered: pallets(parseInt($("qty").value || "0", 10), unit), donor_deadline_hours: hours, requires_cold_storage: $("cold").checked, requires_frozen: /\bfrozen\b|freezer/i.test(text), requires_pickup_van: collects === "van", donor_lat: DONOR.lat, donor_lon: DONOR.lon, declined_recipient_names: [] };
+  const offer = await api.offers.create({ createdAt: new Date().toISOString(), deadlineAt: new Date(Date.now() + hours * 3.6e6).toISOString(), donor: $("donor").value.trim(), req, result: null, stage: "new", stamps: {}, declined: [], split: false, example: false });
+  go("#" + offer.id);
+  runMatch(offer);
+}
+async function runMatch(offer) {
+  const req = { ...offer.req, donor_deadline_hours: Math.max(0.5, Math.round(left(offer.deadlineAt) / 3.6e5) / 10), declined_recipient_names: offer.declined.map(d => d.name) };
+  let result = null;
+  try { result = await api.match(req); }
+  catch (err) { await api.offers.update(offer.id, { stage: "nobody", result: null, err: err.message }); render(); return; }
+  const stage = result.matches.length ? "matched" : "nobody";
+  await api.offers.update(offer.id, { req, result, stage, stamps: stage === "matched" ? { matched: new Date().toISOString() } : {}, split: false, err: null });
+  render();
+}
+
+function stageLine(o) {
+  if (o.stage === "new" || o.stage === "nobody") return "";
+  const idx = STAGES.indexOf(o.stage);
+  const parts = STAGES.map((s, i) => `<span class="s ${i < idx ? "on" : i === idx ? "now" : ""}">${STAGE_WORD[s]}${o.stamps[s] ? " " + fmtT(o.stamps[s]) : ""}</span>`);
+  const notes = o.declined.map(d => `${nice(d.name)} said no at ${fmtT(d.at)}.`).join(" ");
+  return `<div class="stageline">${parts.join('<span class="arrow">›</span>')}${notes ? `<span class="note">${esc(notes)}</span>` : ""}</div>`;
+}
+function checks(m, o) {
+  const cold = m.cold_storage !== "none" && (!o.req.requires_frozen || m.frozen_storage);
   const van = !!m.refrigerated_transport;
   const mg = m.margin_hours;
-  const tCls = mg >= 1 ? "good" : mg >= 0 ? "warn" : "bad";
-  return `
-    <div class="light ${cold ? "good" : "bad"}"><div class="ico">❄️</div><div><div class="q">Can they keep it cold?</div><div class="a">${cold ? "Yes, " + esc(m.cold_storage) + " cooler" : "No refrigerator"}</div></div></div>
-    <div class="light ${van ? "good" : "warn"}"><div class="ico">🚐</div><div><div class="q">Who will pick it up?</div><div class="a">${van ? "Their own van, within " + hrs(m.pickup_window_hours) : "Needs a volunteer driver"}</div></div></div>
-    <div class="light ${tCls}"><div class="ico">⏱️</div><div><div class="q">Will it get there in time?</div><div class="a">${mg >= 0 ? hrs(mg) + " to spare" : "Too slow by " + hrs(-mg)}</div></div></div>
-    <div class="light info"><div class="ico">📍</div><div><div class="q">Who it feeds</div><div class="a num">${m.equity_context.poverty_rate}% in poverty · ${m.equity_context.pct_no_vehicle}% no car</div></div></div>`;
+  return `<span class="chk ${cold ? "good" : "bad"}">❄️ ${cold ? esc(coolerWord(m.cold_storage)) : "No refrigerator"}</span>
+    <span class="chk ${van ? "good" : "warn"}">🚐 ${van ? "Own van, collects in " + hrs(m.pickup_window_hours) : "Needs a driver, " + hrs(m.pickup_window_hours) + " to load"}</span>
+    <span class="chk ${mg >= 1 ? "good" : mg >= 0 ? "warn" : "bad"}">⏱️ ${mg >= 0 ? hrs(mg) + " to spare" : "Too slow by " + hrs(-mg)}</span>`;
 }
-function tabBar(d) {
-  const nb = Math.max(0, d.matches.length - 1), ns = d.rejected_decoys.length;
-  const tabs = [["match", "#1 Match"], ["backups", "Backups" + (nb ? " · " + nb : "")], ["skipped", "Skipped" + (ns ? " · " + ns : "")], ["ask", "Ask"], ["data", "Data"]];
-  return `<div class="tabs" id="tabs"><div class="seg" role="tablist" aria-label="Match brief sections">${tabs.map(([k, l]) => `<button class="tab" type="button" role="tab" data-tab="${k}" aria-selected="false">${l}</button>`).join("")}</div></div>`;
+function driverText(o, top) {
+  return `Pickup needed: ${o.req.posting_text}. From ${o.donor || "the donor"} to ${nice(top.name)}, ${nice(top.street)} (${top.distance_km} km).${o.req.requires_cold_storage ? " Must stay cold." : ""} Needs to be there by ${fmtT(o.deadlineAt)}. Who can take it? Reply with your name.`;
 }
-function showTab(name) {
-  activeTab = name;
-  document.querySelectorAll("#stack .panel").forEach(p => { p.hidden = p.dataset.tab !== name; });
-  document.querySelectorAll("#stack .tab").forEach(t => t.setAttribute("aria-selected", t.dataset.tab === name ? "true" : "false"));
-  $("stack").scrollTop = 0;
+function actionButtons(o, top) {
+  const needsDriver = top && (!top.refrigerated_transport || !o.req.requires_pickup_van);
+  switch (o.stage) {
+    case "matched": return `<div class="actions ${needsDriver ? "three" : ""}"><button class="btn go" type="button" data-act="sent">📲 Send text</button>${needsDriver ? '<button class="btn" type="button" data-act="drivers">🚗 Text the drivers</button>' : ""}<button class="btn no" type="button" data-act="no">❌ They said no</button></div>`;
+    case "sent": return `<div class="actions"><button class="btn go" type="button" data-act="accepted">✅ They accepted</button><button class="btn no" type="button" data-act="no">❌ They said no</button></div>`;
+    case "accepted": return `<div class="actions one"><button class="btn go" type="button" data-act="picked_up">📦 Picked up</button></div>`;
+    case "picked_up": return `<div class="actions one"><button class="btn go" type="button" data-act="delivered">🏁 Delivered</button></div>`;
+    case "delivered": return `<div class="actions one"><a class="btn" href="#board">← Back to today's board</a></div>`;
+    default: return "";
+  }
 }
-function auditHtml() {
-  const e = equity || { metro_baseline: { poverty_rate: 16.96, pct_no_vehicle: 21.89 }, matched_cohort: { poverty_rate: 16.39, pct_no_vehicle: 25.75 } };
-  return `
-    <div class="audit">
-      <div><div class="k">Households without a car</div><div class="v num">${e.matched_cohort.pct_no_vehicle.toFixed(1)}% <small>matched</small> vs ${e.metro_baseline.pct_no_vehicle.toFixed(1)}% <small>city</small></div></div>
-      <div><div class="k">Poverty rate</div><div class="v num">${e.matched_cohort.poverty_rate.toFixed(1)}% <small>matched</small> vs ${e.metro_baseline.poverty_rate.toFixed(1)}% <small>city</small></div></div>
+function before(list, o, name) {
+  const n = list.filter(x => x.id !== o.id && x.stage === "delivered" && x.result && x.result.matches[0] && x.result.matches[0].name === name).length;
+  return n ? ` · took ${n} load${n > 1 ? "s" : ""} from us before` : "";
+}
+async function renderOffer(id) {
+  const list = await api.offers.list();
+  const o = list.find(x => x.id === id);
+  if (!o) { go("#board"); return; }
+  current = o;
+  const r = o.result, top = r && r.matches[0], backups = r ? r.matches.slice(1) : [], skipped = r ? r.rejected_decoys : [];
+  const ms = left(o.deadlineAt);
+  const po = o.req.pallets_offered;
+  let html = `<section class="card">
+    <div class="ohead">
+      <div><div class="what">${esc(o.req.posting_text)}</div>
+        <div class="who">${esc(o.donor || "Donor")} · ${po ? po + " pallet" + (po > 1 ? "s" : "") : "amount from the text"} · ${o.req.requires_cold_storage ? "keep cold · " : ""}${o.req.requires_pickup_van ? "pantry collects" : "we send a driver"}</div></div>
+      <div class="clock ${leftCls(ms, o.stage)}"><div class="v num" data-clock="${o.deadlineAt}" data-stage="${o.stage}" data-fmt="long">${o.stage === "delivered" ? "Delivered" : leftLong(ms)}</div><div class="by">${o.stage === "delivered" ? fmtT(o.stamps.delivered) : (ms <= 0 ? "Overdue · was due " : "Needs to go by ") + fmtT(o.deadlineAt)}</div></div>
     </div>
-    ${e.honest_take ? `<div>${esc(e.honest_take)}</div>` : ""}`;
-}
-function renderStack(d) {
-  const top = d.matches[0];
-  const backups = d.matches.slice(1);
-  const offer = d.posting_summary.posting_text;
-  const po = d.posting_summary.pallets_offered;
-  let html = tabBar(d) + '<div class="panel" data-tab="match">';
-  if (top) {
-    const routeUrl = `https://www.google.com/maps/dir/?api=1&origin=${d.posting_summary.donor.lat},${d.posting_summary.donor.lon}&destination=${top.lat},${top.lon}`;
-    const room = top.pallets_allocated >= po ? `Takes all ${po} pallet${po > 1 ? "s" : ""}` : `Takes ${top.pallets_allocated} of ${po} pallets`;
-    html += `
-    <section class="card match">
-      <div class="tag"><span class="dot"></span> #1 · They can take it</div>
-      <h3>${esc(top.name)}</h3>
-      <div class="addr">${esc(top.street)} · <b class="num">${top.distance_km} km</b> · ${top.service_days ? esc(top.service_days) + " · " : ""}${room} · <a href="${routeUrl}" target="_blank" rel="noopener">Route ↗</a></div>
-      <div class="lights">${lights(top, d)}</div>
-      <div class="msg"><div class="k"><span>📱 Text message to send to the pantry</span><button class="copy" type="button" id="copyBtn">Copy</button></div><pre id="draft">${esc(top.draft_message)}</pre></div>
-      <div class="actions">
-        <button class="btn go" type="button" id="sendBtn">📲 Send text to pantry</button>
-        <button class="btn no" type="button" id="noBtn">❌ They said no — who's next</button>
-      </div>
-    </section>`;
+    ${stageLine(o)}
+    ${r && r.clock && r.clock.usda_shelf_life_hours ? `<p class="hint" style="margin-top:8px">USDA says ${esc(r.clock.matched_usda_product)} keeps about ${r.clock.usda_shelf_life_hours} h in a fridge. The donor's deadline wins.</p>` : ""}
+  </section>`;
+
+  if (o.stage === "new") {
+    html += `<section class="card"><p class="hint"><span class="spin"></span>Checking who can keep it cold, pick it up, and get there in time…</p></section>`;
+  } else if (!top) {
+    html += `<section class="card error"><b>No pantry in range can take this right now.</b>
+      <p class="hint" style="margin-top:4px">${o.err ? esc(o.err) + ". " : ""}Every nearby pantry was skipped for a reason listed below.</p>
+      <div class="actions ${o.req.requires_pickup_van ? "" : "one"}">${o.req.requires_pickup_van ? '<button class="btn" type="button" data-act="driver-mode">🚗 Send a driver instead</button>' : ""}<button class="btn" type="button" data-act="more-time">⏱️ Give it 2 more hours</button></div></section>`;
   } else {
-    html += `<section class="card"><h2>No pantry can take this right now</h2><p class="empty">Every nearby pantry was skipped for a reason listed under Skipped. Try loosening the clock, or turn off "picks it up in their own van" to use a volunteer driver.</p></section>`;
+    const waiting = o.stage !== "matched";
+    const routeUrl = `https://www.google.com/maps/dir/?api=1&origin=${o.req.donor_lat},${o.req.donor_lon}&destination=${top.lat},${top.lon}`;
+    const needsDriver = !top.refrigerated_transport || !o.req.requires_pickup_van;
+    html += `<section class="card match ${waiting ? "waiting" : ""}">
+      <div class="tag">${waiting ? STAGE_LABEL[o.stage] + (o.stamps[o.stage] ? " · " + fmtT(o.stamps[o.stage]) : "") : "#1 · They can take it"}</div>
+      <h3>${esc(nice(top.name))}</h3>
+      <div class="addr">${esc(nice(top.street))} · <b class="num">${top.distance_km} km</b> · <a href="${routeUrl}" target="_blank" rel="noopener">Route ↗</a></div>
+      <div class="checks">${checks(top, o)}</div>
+      <div class="feeds">Who it feeds: <b>${top.equity_context.poverty_rate}%</b> in poverty · <b>${top.equity_context.pct_no_vehicle}%</b> no car${esc(before(list, o, top.name))}</div>
+      <details class="msg"><summary><span>📱 Text message to send to the pantry</span><button class="copy" type="button" data-copy="draft">Copy</button></summary><pre id="draft">${esc(top.draft_message)}</pre></details>
+      ${needsDriver ? `<details class="msg"><summary><span>🚗 Text message to send to the drivers</span><button class="copy" type="button" data-copy="driverDraft">Copy</button></summary><pre id="driverDraft">${esc(driverText(o, top))}</pre></details>` : ""}
+      ${actionButtons(o, top)}
+    </section>`;
+    if (r.split_plan.length >= 2 && (o.stage === "matched" || o.split)) {
+      const n = r.split_plan.length, total = r.split_plan.reduce((s, x) => s + (x.allocated_pallets || 0), 0);
+      html += `<section class="card split list">
+        <h2>${top.max_pallets < po ? `No one pantry can take all ${po} pallets.` : "Or share the load."} <small>Split across ${n} pantries${o.split ? " · sent" : ""}</small></h2>
+        ${r.split_plan.map(x => `<div class="it"><div><div class="t">${esc(nice(x.name))}</div><div class="d">${x.allocated_pallets} pallet${x.allocated_pallets > 1 ? "s" : ""} · ${x.distance_km} km</div>${o.split ? `<details class="msg" style="margin-top:4px"><summary><span>📱 Their message</span></summary><pre>${esc(x.draft_split_message)}</pre></details>` : ""}</div><div class="w">${x.allocated_pallets} of ${x.max_pallets}</div></div>`).join("")}
+        ${o.split ? "" : `<div class="actions one"><button class="btn go" type="button" data-act="split">📲 Send to all ${n} (${total} pallets)</button></div>`}
+      </section>`;
+    }
+    if (backups.length && o.stage !== "delivered") {
+      html += `<section class="card list"><h2>They said no? Try next pantry</h2>
+        ${backups.map(b => `<div class="it"><div class="n num">#${b.rank}</div><div><div class="t">${esc(nice(b.name))}</div><div class="d">${esc(nice(b.street))} · ${b.distance_km} km · ${esc(coolerWord(b.cold_storage))}${b.refrigerated_transport ? " · own van" : " · needs a driver"}</div></div><div class="w num">collects in ${hrs(b.pickup_window_hours)}<br>${hrs(b.margin_hours)} to spare</div></div>`).join("")}
+      </section>`;
+    }
   }
-  html += '</div><div class="panel" data-tab="backups">';
-  html += `
-    <section class="card">
-      <h2>🔄 They said no? Try next pantry</h2>
-      <p class="sub">Already checked: fridge, van, clock. One click promotes them.</p>
-      ${backups.length ? backups.map(b => `
-        <div class="backup">
-          <div class="n num">#${b.rank}</div>
-          <div><div class="t">${esc(b.name)}</div><div class="d">${esc(b.street)} · ${b.distance_km} km · ${esc(b.cold_storage)} cooler · ${b.equity_context.poverty_rate}% poverty</div></div>
-          <div class="w num">picks up in ${hrs(b.pickup_window_hours)}<br>${hrs(b.margin_hours)} to spare</div>
-        </div>`).join("") : `<p class="empty">No backups left for this offer.</p>`}
-    </section></div><div class="panel" data-tab="skipped">
-    <section class="card">
-      <h2>🛡️ Why we skipped others</h2>
-      <p class="sub">The search found them on meaning. These checks stopped us sending food that would spoil.</p>
-      ${d.rejected_decoys.length ? d.rejected_decoys.map(x => `
-        <div class="skip">
-          <div class="x">✕</div>
-          <div><div class="t">${esc(x.name)} <span style="color:var(--muted);font-weight:500">· #${x.semantic_rank} on meaning</span></div>
-            <div class="d">${esc(humanReason(x, offer))}</div>
-            <div class="r">${esc(x.rejection_reason)}</div></div>
-        </div>`).join("") : `<p class="empty">Nothing skipped for this offer.</p>`}
-    </section></div><div class="panel" data-tab="ask">
-    <section class="card">
-      <h2>💬 Ask the broker</h2>
-      <p class="sub">The seven questions a coordinator asks.</p>
-      <div class="ask" id="ask">
-        ${QUESTIONS.map((q, i) => `<button type="button" data-q="${i}">${q}</button>`).join("")}
-      </div>
-      <div class="answer" id="answer"><span class="empty">Tap a question.</span></div>
-    </section></div><div class="panel" data-tab="data">
-    <section class="card honest">
-      <h2>What's real, what isn't</h2>
-      <div><b>Real:</b> organisation names, addresses and income are IRS records. <b>Generated:</b> fridge, capacity and pickup windows (no public data exists). <b>Locations</b> are ZIP centroids. <b>Shelf life</b> is USDA FoodKeeper consumer guidance, not cold-chain science.</div>
-      <div><b>Who it feeds, city-wide</b> (10 test offers vs the Chicago average):</div>
-      <div id="auditBox">${auditHtml()}</div>
-    </section></div>`;
+  if (skipped.length) {
+    const counts = {}; skipped.forEach(x => { const w = REASON_WORD[x.reason_code] || "other"; counts[w] = (counts[w] || 0) + 1; });
+    html += `<section class="card"><details class="skips"><summary><span>Why we skipped ${skipped.length}</span><span class="why">${Object.entries(counts).map(([w, n]) => `${n} ${w}`).join(" · ")}</span></summary>
+      ${skipped.map(x => `<div class="sk"><b>${esc(nice(x.name))}</b> <span class="hint">· #${x.semantic_rank} on meaning</span><div>${esc(humanReason(x, o.req.posting_text))}</div></div>`).join("")}
+    </details></section>`;
+  }
   $("stack").innerHTML = html;
-  showTab(activeTab);
-  $("tabs").addEventListener("click", e => { const b = e.target.closest(".tab"); if (b) showTab(b.dataset.tab); });
-  if (top) {
-    $("sendBtn").addEventListener("click", () => toast(`Text sent to ${top.name}. Driver on the way (demo).`));
-    $("noBtn").addEventListener("click", () => { if (!declined.includes(top.name)) declined.push(top.name); toast(`${top.name} said no. Showing who's next.`); run(); });
-    $("copyBtn").addEventListener("click", async () => {
-      try { await navigator.clipboard.writeText($("draft").textContent); toast("Message copied."); }
-      catch { const r = document.createRange(); r.selectNodeContents($("draft")); const s = getSelection(); s.removeAllRanges(); s.addRange(r); toast("Select and copy the message."); }
-    });
+  $("stack").scrollTop = 0;
+  $("stack").querySelectorAll("[data-act]").forEach(b => b.addEventListener("click", () => act(b.dataset.act)));
+  $("stack").querySelectorAll("[data-copy]").forEach(b => b.addEventListener("click", async e => {
+    e.preventDefault(); e.stopPropagation();
+    const text = $(b.dataset.copy).textContent;
+    try { await navigator.clipboard.writeText(text); toast("Message copied."); }
+    catch { const rng = document.createRange(); rng.selectNodeContents($(b.dataset.copy)); const s = getSelection(); s.removeAllRanges(); s.addRange(rng); toast("Select and copy the message."); }
+  }));
+  if (r) drawMap(r); else clearMap();
+}
+async function act(a) {
+  const o = current; if (!o) return;
+  const now = new Date().toISOString();
+  const top = o.result && o.result.matches[0];
+  if (a === "no") {
+    const declined = [...o.declined, { name: top.name, at: now }];
+    await api.offers.update(o.id, { declined, stage: "new", stamps: {}, split: false });
+    render(); runMatch({ ...o, declined }); return;
   }
-  $("ask").addEventListener("click", e => {
-    const b = e.target.closest("button"); if (!b) return;
-    [...$("ask").children].forEach(x => x.setAttribute("aria-pressed", x === b ? "true" : "false"));
-    askBroker(+b.dataset.q);
+  if (a === "driver-mode") { const req = { ...o.req, requires_pickup_van: false }; await api.offers.update(o.id, { req, stage: "new" }); render(); runMatch({ ...o, req }); return; }
+  if (a === "more-time") { const deadlineAt = new Date(new Date(o.deadlineAt).getTime() + 2 * 3.6e6).toISOString(); await api.offers.update(o.id, { deadlineAt, stage: "new" }); render(); runMatch({ ...o, deadlineAt }); return; }
+  if (a === "drivers") { const d = $("stack").querySelector("#driverDraft"); if (d) d.closest("details").open = true; toast("Driver message is ready to copy."); return; }
+  if (a === "split") { await api.offers.update(o.id, { stage: "sent", split: true, stamps: { ...o.stamps, sent: now } }); render(); return; }
+  if (["sent", "accepted", "picked_up", "delivered"].includes(a)) { await api.offers.update(o.id, { stage: a, stamps: { ...o.stamps, [a]: now } }); render(); return; }
+}
+async function renderFoot() {
+  const list = await api.offers.list();
+  const live = list.some(o => o.result && o.result.data_source === "bigquery_live");
+  const ex = list.some(o => o.example);
+  $("foot").innerHTML = `<span>${live ? "Live: BigQuery vector search" : "🧪 Demo data"}</span><span>· pantry locations are ZIP centroids</span><span>· shelf life is USDA home guidance</span><span>· status is kept in this browser</span>${ex ? '<button class="link" type="button" id="clearEx">Clear examples</button>' : ""}<button class="link" type="button" id="resetBtn">Reset demo</button>`;
+  const c = $("clearEx"); if (c) c.addEventListener("click", async () => { await api.offers.reset(list.filter(o => !o.example)); render(); });
+  $("resetBtn").addEventListener("click", async () => { await api.offers.reset(exampleOffers()); go("#board"); render(); });
+}
+function tickClocks() {
+  document.querySelectorAll("[data-clock]").forEach(el => {
+    if (el.dataset.stage === "delivered") return;
+    const ms = left(el.dataset.clock);
+    el.textContent = el.dataset.fmt === "long" ? leftLong(ms) : leftShort(ms);
+    const box = el.classList.contains("v") ? el.parentElement : el;
+    box.classList.remove("warn", "bad"); const c = leftCls(ms, el.dataset.stage); if (c) box.classList.add(c);
   });
 }
-async function askBroker(i) {
-  const box = $("answer");
-  box.innerHTML = `<span class="empty"><span class="spin"></span>Asking…</span>`;
-  try {
-    const res = await fetch("/api/brief", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...lastReq, question: QUESTIONS[i] }) });
-    if (!res.ok) throw new Error("HTTP " + res.status);
-    const j = await res.json();
-    if (j && j.answer) { box.innerHTML = esc(j.answer) + `<span class="src">Source: ${j.source === "gemini_adk" ? "Gemini via ADK" : "plain answer from the match result"}</span>`; return; }
-    throw new Error("no answer");
-  } catch {
-    box.innerHTML = esc(templateAnswer(i, data)) + '<span class="src">Source: plain answer from the match result</span>';
-  }
-}
-function templateAnswer(i, d) {
-  const t = d.matches[0], b = d.matches[1], c = d.clock, g = d.rejected_decoys[0];
-  if (!t) return "No pantry passes every check right now. See Skipped for why.";
-  switch (i) {
-    case 0: return `${t.name}, ${t.street}. They have a ${t.cold_storage} cooler and their own van, and can collect within ${hrs(t.pickup_window_hours)} with ${hrs(t.margin_hours)} to spare.`;
-    case 1: return g ? `${g.name} ranked #${g.semantic_rank} on meaning, but ${humanReason(g, d.posting_summary.posting_text).replace(/^Why we skipped \w+: /, "")} ${t.name} passes every check and serves a neighbourhood where ${t.equity_context.poverty_rate}% live in poverty.` : `${t.name} passed every check.`;
-    case 2: return b ? `${b.name}, ${b.street}. ${b.cold_storage} cooler, own van, collects within ${hrs(b.pickup_window_hours)}. Press "They said no" to promote them and get their message.` : "No backup left. Loosen the clock or allow a volunteer driver.";
-    case 3: return `USDA FoodKeeper lists ${c.matched_usda_product} at about ${c.usda_shelf_life_hours} h in a home fridge. That is consumer guidance, not cold-chain science, so we use the donor's ${c.donor_deadline_hours} h deadline as the clock.`;
-    case 4: return t.refrigerated_transport ? `${t.name} picks up in their own refrigerated van. No volunteer driver needed.` : `${t.name} has no van. Send a volunteer driver with a cooler.`;
-    case 5: return `${t.name} sits in a census tract where ${t.equity_context.poverty_rate}% of people live in poverty and ${t.equity_context.pct_no_vehicle}% of households have no car. That is what broke the tie with ${b ? b.name : "the next pantry"}.`;
-    case 6: return t.draft_message;
-  }
-}
-async function loadEquity() {
-  try {
-    const res = await fetch("/api/equity_audit");
-    if (!res.ok) return;
-    equity = await res.json();
-    const box = $("auditBox"); if (box) box.innerHTML = auditHtml();
-  } catch { /* optional endpoint */ }
-}
+setInterval(tickClocks, 1000);
 function toast(msg) { const t = $("toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove("show"), 2400); }
 
 /* ---------------------------------------------------------------
-   MAP — Leaflet + CARTO basemap. Pins from contract lat/lon.
+   MAP — Leaflet + OpenStreetMap in the app; a schematic SVG when standalone. Pins from contract lat/lon.
 ---------------------------------------------------------------- */
-let map = null, pinsLayer = null, tiles = null, vanMarker = null, vanRaf = null, routePts = null, vanT = 0;
+let map = null, pinsLayer = null, vanMarker = null, vanRaf = null, routePts = null, vanT = 0;
 const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
-const isDark = () => matchMedia("(prefers-color-scheme: dark)").matches && document.documentElement.dataset.theme !== "light" || document.documentElement.dataset.theme === "dark";
 function css(n) { return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
-function tileLayer() {
-  // OpenStreetMap standard tiles (no key). Dark mode is a CSS filter on the tile pane (see --tile-filter).
-  return L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors', maxZoom: 19 });
-}
 function initMap() {
   if (map) return;
+  $("map").innerHTML = "";
   map = L.map("map", { zoomControl: true }).setView([DONOR.lat, DONOR.lon], 13);
-  tiles = tileLayer().addTo(map);
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors', maxZoom: 19 }).addTo(map);
   pinsLayer = L.layerGroup().addTo(map);
 }
+function clearMap() { if (map) { pinsLayer.clearLayers(); cancelAnimationFrame(vanRaf); } else $("map").innerHTML = ""; }
 const pinIcon = (cls, label, ring) => L.divIcon({ className: "", html: `<div class="pin-wrap">${ring ? '<div class="ring"></div>' : ""}<div class="pin ${cls}">${label}</div></div>`, iconSize: [60, 60], iconAnchor: [30, 30], popupAnchor: [0, -22] });
 function svgMap(d) {
-  // Schematic map for the standalone preview: same pins and route, no tiles.
   const donor = d.posting_summary.donor, top = d.matches[0], offer = d.posting_summary.posting_text;
   const pts = [donor, ...d.matches, ...d.rejected_decoys.filter(x => x.lat != null && x.lon != null)];
   const k = Math.cos(donor.lat * Math.PI / 180);
@@ -677,43 +727,42 @@ function svgMap(d) {
   const pin = (p, cls, label, radius = 16, emoji = false) => `<g><title>${esc(p.title)}</title><circle class="pin-c ${cls}" cx="${X(p)}" cy="${Y(p)}" r="${radius}"/><text class="pin-t${emoji ? " emoji" : ""}" x="${X(p)}" y="${Y(p)}">${label}</text></g>`;
   let s = grid.join("");
   d.rejected_decoys.filter(x => x.lat != null && x.lon != null).forEach(x => { s += pin({ ...x, title: `Skipped: ${x.name}. ${humanReason(x, offer)}` }, "bad", "✕"); });
-  d.matches.slice(1).forEach(m => { s += pin({ ...m, title: `#${m.rank} backup: ${m.name}, ${m.distance_km} km` }, "warn", "#" + m.rank) + `<text class="name" x="${X(m) + 22}" y="${Y(m) + 5}">${esc(m.name)}</text>`; });
+  d.matches.slice(1).forEach(m => { s += pin({ ...m, title: `#${m.rank} backup: ${m.name}, ${m.distance_km} km` }, "warn", "#" + m.rank) + `<text class="name" x="${X(m) + 22}" y="${Y(m) + 5}">${esc(nice(m.name))}</text>`; });
   if (top) {
     const turn = { lat: top.lat, lon: donor.lon };
     s += `<polyline class="route" points="${X(donor)},${Y(donor)} ${X(turn)},${Y(turn)} ${X(top)},${Y(top)}"/>`;
-    s += `<circle class="ring" cx="${X(top)}" cy="${Y(top)}" r="40"/>` + pin({ ...top, title: `#1 ${top.name}, ${top.distance_km} km` }, "good", "1", 20) + `<text class="name" x="${X(top) + 26}" y="${Y(top) + 5}">${esc(top.name)}</text>`;
-    const van = { lat: donor.lat + (turn.lat - donor.lat) * 0.9, lon: donor.lon, title: "Van on the way" };
-    s += pin(van, "van", "🚐", 18, true);
+    s += `<circle class="ring" cx="${X(top)}" cy="${Y(top)}" r="40"/>` + pin({ ...top, title: `#1 ${top.name}, ${top.distance_km} km` }, "good", "1", 20) + `<text class="name" x="${X(top) + 26}" y="${Y(top) + 5}">${esc(nice(top.name))}</text>`;
+    s += pin({ lat: donor.lat + (turn.lat - donor.lat) * 0.9, lon: donor.lon, title: "Van on the way" }, "van", "🚐", 18, true);
   }
-  s += pin({ ...donor, title: `Pickup dock: ${offer}` }, "donor", "🏪", 18, true);
-  box.innerHTML = `<svg class="smap" viewBox="0 0 ${W} ${H}" role="img" aria-label="Map of the pickup dock, the pantry that can take it, backups and skipped pantries">${s}</svg>`;
+  s += pin({ ...donor, title: `Pickup: ${offer}` }, "donor", "🏪", 18, true);
+  box.innerHTML = `<svg class="smap" viewBox="0 0 ${W} ${H}" role="img" aria-label="Map of the pickup, the pantry that can take it, backups and skipped pantries">${s}</svg>`;
 }
 function drawMap(d) {
-  if (demoMode || !window.L) { if (map) { map.remove(); map = null; } svgMap(d); return; }
-  if (!map) $("map").innerHTML = "";
+  if (standalone || !window.L) { if (map) { map.remove(); map = null; } svgMap(d); return; }
   initMap();
+  setTimeout(() => map && map.invalidateSize(), 60);
   pinsLayer.clearLayers();
   cancelAnimationFrame(vanRaf); vanMarker = null; routePts = null;
   const donor = d.posting_summary.donor, top = d.matches[0], offer = d.posting_summary.posting_text;
   const bounds = [[donor.lat, donor.lon]];
   d.rejected_decoys.forEach(x => {
     if (x.lat == null || x.lon == null) return;
-    L.marker([x.lat, x.lon], { icon: pinIcon("pin-bad", "✕") }).bindPopup(`<b>Skipped: ${esc(x.name)}</b>${esc(humanReason(x, offer))}`).addTo(pinsLayer);
+    L.marker([x.lat, x.lon], { icon: pinIcon("pin-bad", "✕") }).bindPopup(`<b>Skipped: ${esc(nice(x.name))}</b>${esc(humanReason(x, offer))}`).addTo(pinsLayer);
     bounds.push([x.lat, x.lon]);
   });
   d.matches.slice(1).forEach(m => {
-    L.marker([m.lat, m.lon], { icon: pinIcon("pin-warn", "#" + m.rank) }).bindPopup(`<b>#${m.rank} backup: ${esc(m.name)}</b>${esc(m.street)} · ${m.distance_km} km · picks up in ${hrs(m.pickup_window_hours)}`).addTo(pinsLayer);
+    L.marker([m.lat, m.lon], { icon: pinIcon("pin-warn", "#" + m.rank) }).bindPopup(`<b>#${m.rank} backup: ${esc(nice(m.name))}</b>${esc(nice(m.street))} · ${m.distance_km} km · collects in ${hrs(m.pickup_window_hours)}`).addTo(pinsLayer);
     bounds.push([m.lat, m.lon]);
   });
   if (top) {
     routePts = [[donor.lat, donor.lon], [top.lat, donor.lon], [top.lat, top.lon]];   // Chicago grid: one turn
     L.polyline(routePts, { color: css("--accent"), weight: 5, opacity: 0.85, lineJoin: "round", lineCap: "round" }).addTo(pinsLayer);
-    L.marker([top.lat, top.lon], { icon: pinIcon("pin-good", "1", true), zIndexOffset: 500 }).bindPopup(`<b>#1 ${esc(top.name)}</b>${esc(top.street)} · ${top.distance_km} km · ${esc(top.cold_storage)} cooler, own van`).addTo(pinsLayer);
+    L.marker([top.lat, top.lon], { icon: pinIcon("pin-good", "1", true), zIndexOffset: 500 }).bindPopup(`<b>#1 ${esc(nice(top.name))}</b>${esc(nice(top.street))} · ${top.distance_km} km · ${esc(coolerWord(top.cold_storage))}${top.refrigerated_transport ? ", own van" : ", needs a driver"}`).addTo(pinsLayer);
     bounds.push([top.lat, top.lon]);
     vanMarker = L.marker(routePts[0], { icon: pinIcon("pin-van", "🚐"), zIndexOffset: 1000, interactive: false }).addTo(pinsLayer);
     vanT = 0; if (!reduce) animateVan(); else vanMarker.setLatLng(lerpRoute(0.45));
   }
-  L.marker([donor.lat, donor.lon], { icon: pinIcon("pin-donor", "🏪"), zIndexOffset: 800 }).bindPopup(`<b>Pickup dock</b>${esc(offer)}`).addTo(pinsLayer);
+  L.marker([donor.lat, donor.lon], { icon: pinIcon("pin-donor", "🏪"), zIndexOffset: 800 }).bindPopup(`<b>Pickup</b>${esc(offer)}`).addTo(pinsLayer);
   map.fitBounds(bounds, { padding: [60, 60], maxZoom: 14 });
 }
 function lerpRoute(t) {
@@ -730,22 +779,22 @@ function animateVan() {
   vanRaf = requestAnimationFrame(animateVan);
 }
 
-/* Wiring */
-$("scenarios").addEventListener("click", e => {
-  const b = e.target.closest(".scenario"); if (!b) return;
-  [...$("scenarios").children].forEach(x => x.setAttribute("aria-pressed", x === b ? "true" : "false"));
-  const s = SCENARIOS[b.dataset.id];
-  $("posting_text").value = s.text; $("pallets").value = s.pallets; $("hours").value = s.hours; $("req_cold").checked = s.cold; $("req_van").checked = s.van;
-  declined = []; run();
-});
-$("findBtn").addEventListener("click", () => { declined = []; run(); });
-const backToOffer = () => { showScreen("offer"); $("posting_text").focus(); };
-$("brand").addEventListener("click", backToOffer);
-$("brand").addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); backToOffer(); } });
-$("offerSummary").addEventListener("click", backToOffer);
-$("posting_text").addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); declined = []; run(); } });
-loadEquity();
-showScreen("offer");
+/* ---------------- Wiring ---------------- */
+$("form").addEventListener("submit", submitOffer);
+$("calls").addEventListener("click", e => { const b = e.target.closest(".call"); if (b) fillCall(b.dataset.id); });
+$("unit").addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; unit = b.dataset.u; setSeg("unit", "u", unit); });
+$("collects").addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; collects = b.dataset.v; setSeg("collects", "v", collects); });
+$("posting_text").addEventListener("input", e => { $("cold").checked = /spinach|greens|lettuce|produce|dairy|milk|yogurt|cheese|meat|chicken|fish|prepared|hot|chilled|frozen|berr/i.test(e.target.value); });
+$("posting_text").addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("form").requestSubmit(); } });
+const toBoard = () => go("#board");
+$("brand").addEventListener("click", toBoard);
+$("brand").addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toBoard(); } });
+window.addEventListener("hashchange", render);
+(async () => {
+  try { const res = await fetch("/healthz", { cache: "no-store" }); const j = await res.json(); standalone = !(res.ok && j && j.status === "ok"); } catch { standalone = true; }
+  await seedIfEmpty();
+  render();
+})();
 </script>
 </body>
 </html>
