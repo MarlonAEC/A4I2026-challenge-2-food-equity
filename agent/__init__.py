@@ -19,9 +19,8 @@ if os.environ.get("GEMINI_API_KEY") and not os.environ.get("GOOGLE_API_KEY"):
 elif os.environ.get("GOOGLE_API_KEY") and not os.environ.get("GEMINI_API_KEY"):
     os.environ["GEMINI_API_KEY"] = os.environ["GOOGLE_API_KEY"]
 
-try:
-    from .agent import root_agent
-except ImportError:
-    root_agent = None
+# agent.py already sets root_agent = None when google-adk is missing; anything else raising
+# ImportError here is a real bug and should surface, not leave ADK with no agent.
+from .agent import root_agent
 
 __all__ = ["root_agent"]

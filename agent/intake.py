@@ -38,6 +38,7 @@ from .tools import (
     _fetch_candidates,
     _get_bq_client,
     _haversine_km,
+    find_and_rank_recipients,
 )
 
 DEFAULT_STATE = os.environ.get("METRO_STATE", "IL")
@@ -52,9 +53,13 @@ _COLD_STORAGE_KEYWORDS: dict[str, re.Pattern[str]] = {
     "commercial": re.compile(
         r"commercial|reach[- ]?in|restaurant|glass[- ]door|display (fridge|cooler)|\bcoolers?\b"
     ),
-    "domestic": re.compile(r"fridge|refrigerator|household|domestic|kitchen|\bhome\b"),
+    "domestic": re.compile(r"fridge|refrigerator|household|domestic"),
     "vehicle": re.compile(r"refrigerated (van|truck|vehicle)|reefer"),
 }
+# Ice chests are not refrigeration; stripped before keyword matching so "coolers" doesn't read as commercial.
+_PORTABLE_COLD = re.compile(
+    r"picnic coolers?|portable coolers?|coolers? with ice|ice (chests?|packs?|boxes?)|cool ?box(es)?"
+)
 
 _NEGATION = re.compile(r"\b(no|not|none|never|without|lack|nothing)\b|n't\b")
 _CLAUSE_SPLIT = re.compile(r"[,.;!?]|\bbut\b|\bjust\b|\bonly\b|\bexcept\b|\band\b")
@@ -131,8 +136,10 @@ def _parse_yes_no(answer: str) -> bool | None:
         return None
     if _NO.search(text):
         return False
-    if _YES.search(text):
-        return True
+    yes = _YES.search(text)
+    if yes:
+        # "We have no freezer" opens like a yes; a negation after the opener makes it ambiguous.
+        return None if _NEGATION.search(text[yes.end():]) else True
     return None
 
 
@@ -159,6 +166,7 @@ def _classify_cold_storage(answer: str) -> str | None:
         return None
     if re.search(r"dry (storage|goods) only|shelf[- ]stable only", text):
         return "none"
+    text, portable = _PORTABLE_COLD.subn(" ", text)
 
     found: set[str] = set()
     negated_cold = False
@@ -177,7 +185,7 @@ def _classify_cold_storage(answer: str) -> str | None:
         found.discard("vehicle")
     if found:
         return max(found, key=COLD_STORAGE_LEVELS.index)
-    if negated_cold or _parse_yes_no(text) is False:
+    if negated_cold or portable or _parse_yes_no(text) is False:
         return "none"
     return None
 
@@ -199,7 +207,8 @@ def _parse_pallet_handling(answer: str) -> bool | None:
     for clause, negated in _clauses(text):
         if re.search(r"dock|forklift|pallet jack|lift ?gate|liftgate|pallet", clause):
             return not negated
-    return _parse_yes_no(text)
+    # Only a bare "yes"/"no" answers the question; "We have a side entrance" doesn't.
+    return _parse_yes_no(text) if len(text.split()) <= 3 else None
 
 
 def _parse_hours(answer: str) -> int | None:
@@ -223,12 +232,15 @@ def _parse_transport(answer: str) -> tuple[bool | None, str | None]:
     text = (answer or "").strip().lower()
     if not text:
         return None, None
+    # The vehicle may be named in one sentence and its refrigeration in the next, as happens
+    # when a follow-up reply is appended: "We have a van. Yes, it's refrigerated."
+    mentions_vehicle = re.search(r"van|truck|vehicle|reefer|transport", text)
     for clause, negated in _clauses(text):
-        if re.search(r"refrigerated|reefer|chilled|cold (van|truck)", clause) and re.search(
-            r"van|truck|vehicle|reefer|transport", clause
-        ):
+        if mentions_vehicle and re.search(r"refrigerat|reefer|chilled|cold (van|truck)", clause):
             return (not negated), None
     if re.search(r"volunteer|driver|deliver|personal (car|vehicle)|\bcars?\b|we can't|cannot collect", text):
+        return False, None
+    if any(negated and re.search(r"\b(van|truck|vehicle)s?\b", c) for c, negated in _clauses(text)):
         return False, None
     if re.search(r"\b(van|truck|vehicle)\b", text) and _parse_yes_no(text) is not False:
         return None, _VAN_NOT_REFRIGERATED_FOLLOW_UP
@@ -263,7 +275,7 @@ def _synthesize_profile_text(record: dict[str, Any], food_needs: str) -> str:
     else:
         parts.append(
             "No loading dock - deliveries are hand-carried in boxes through a regular door, "
-            "so we cannot take pallets."
+            "so food must arrive broken down into boxes rather than on pallets."
         )
     if record["refrigerated_transport"]:
         parts.append("We run our own refrigerated van and can collect perishables ourselves.")
@@ -379,10 +391,12 @@ def build_pantry_profile(
         if dock and stated is None:
             missing["max_pallets"] = FOLLOW_UP_QUESTIONS["max_pallets"]
         else:
-            # Hand-carry only means max_pallets=0: the matcher blocks pallet-scale loads.
-            max_pallets = int(stated) if stated is not None else 0
+            # max_pallets is holding capacity, not dock access: like the corpus's no-dock pantries
+            # (Greenline, Third Ward), hand-carry sites hold at least 1. The matcher rejects 0
+            # outright, so a 0 here would make the pantry unmatchable for any offer.
+            max_pallets = max(1, int(stated)) if stated is not None else 1
             interpretation["max_pallets"] = (
-                f"max_pallets={max_pallets}" + ("" if dock else " (hand-carry only)")
+                f"max_pallets={max_pallets}" + ("" if dock else " (hand-carry only, boxes not pallets)")
             )
 
     window = _parse_hours(pickup_window_answer)
@@ -391,9 +405,12 @@ def build_pantry_profile(
     else:
         interpretation["pickup_window_hours"] = f"{pickup_window_answer!r} -> {window}h"
 
-    frozen = _parse_yes_no(freezer_answer) if freezer_answer else None
+    # Read what they said about a freezer before any yes/no opener ("We have no freezer").
+    frozen = _mentions_freezer(freezer_answer) if freezer_answer else None
+    if frozen is None and freezer_answer:
+        frozen = _parse_yes_no(freezer_answer)
     if frozen is None:
-        frozen = _mentions_freezer(freezer_answer) if freezer_answer else _mentions_freezer(cold_storage_answer)
+        frozen = _mentions_freezer(cold_storage_answer)
     if frozen is None:
         if cold == "none":
             frozen = False
@@ -505,8 +522,10 @@ def _register_in_bigquery(client: Any, record: dict[str, Any]) -> dict[str, Any]
     # Some teams' `recipients` also carries an `embedding` column; the fresh vector replaces it.
     shared_cols = [c for c in embeddings_cols if c in recipients_schema and c != "embedding"]
 
+    # Random 10-digit id, not MAX+1: BigQuery appends don't conflict, so two registrations at
+    # once would both read the same MAX. Stays below 2^53 so the browser UI keeps it exact.
     script = f"""
-    DECLARE new_id INT64 DEFAULT (SELECT IFNULL(MAX(recipient_id), 0) + 1 FROM `{ds}.recipients`);
+    DECLARE new_id INT64 DEFAULT 1000000000 + ABS(MOD(FARM_FINGERPRINT(GENERATE_UUID()), 1000000000));
     INSERT INTO `{ds}.recipients` (recipient_id, {", ".join(insert_cols)})
     VALUES (new_id, {", ".join("@" + c for c in insert_cols)});
     INSERT INTO `{ds}.recipient_embeddings` ({", ".join(shared_cols)}, embedding)
@@ -653,7 +672,13 @@ def register_pantry(
 
     probe = _probe_posting(record, food_needs)
     candidates, source = _fetch_candidates(probe, record["latitude"], record["longitude"], top_k=20)
-    hit = next((c for c in candidates if int(c.get("recipient_id") or -1) == int(result["recipient_id"])), None)
+    new_id = int(result["recipient_id"])
+    hit = next((c for c in candidates if int(c.get("recipient_id") or -1) == new_id), None)
+    # Being retrieved is not enough: the matcher's hard filters decide whether they are ever offered food.
+    ranked = find_and_rank_recipients(
+        posting_text=probe, donor_lat=record["latitude"], donor_lon=record["longitude"], top_n=25
+    )
+    blocked = next((d for d in ranked["rejected_decoys"] if d.get("name") == record["name"]), None)
 
     return {
         "status": result["status"],
@@ -673,6 +698,8 @@ def register_pantry(
             "semantic_rank": hit.get("semantic_rank") if hit else None,
             "semantic_score": hit.get("semantic_score") if hit else None,
             "of_candidates": len(candidates),
+            "passes_hard_filters": any(m["recipient_id"] == new_id for m in ranked["matches"]),
+            "blocked_reason": blocked["rejection_reason"] if blocked else None,
         },
     }
 
@@ -696,27 +723,40 @@ conversation that ends with their pantry in the recipient corpus and searchable.
 - After EVERY answer, call `build_pantry_profile` with all answers so far, passing the
   coordinator's words verbatim (don't translate "a fridge in the church kitchen" into
   "domestic" yourself). Ask the first item in `follow_up_questions` next.
+- When a follow-up clarifies an earlier answer, append the reply to that same field rather
+  than replacing it (e.g. `transport_answer="We have a van. Yes, it's refrigerated."`).
 
 ## Confirm before writing
 - When `build_pantry_profile` returns `status = "complete"`, read the profile back in plain
   words (storage, pallets vs. hand-carry, pickup timing, transport) and ask if it's right.
 - Only after they say yes, call `register_pantry` with the same answers and `confirmed=True`.
+  The app then asks them to approve that write; if they reject it, don't retry - ask what
+  should change.
 - Report the result honestly: where it was written (`storage`), and from `searchable_check`
-  whether the probe search found them and at what rank. If `status` is "error" or
-  "registered_without_embedding", say so plainly - do not claim they are searchable.
+  whether the probe search found them and at what rank. Only say they will be offered food
+  if `passes_hard_filters` is true; otherwise explain `blocked_reason` in plain words.
+  If `status` is "error" or "registered_without_embedding", say so plainly - do not claim
+  they are searchable.
 - If `status` is "already_registered", tell them they're already in the system.
 
 ## Be honest about what the profile does
 Explain that hard limits matter: a pantry with no refrigeration will never be sent
-perishables even if they ask for greens, and hand-carry-only pantries won't be offered
-pallet loads. That protects them from food they can't store.
+perishables even if they ask for greens, a household fridge won't be sent more than a
+pallet of perishables, and no offer will assign them more than the capacity they gave.
+That protects them from food they can't store.
 
 When the pantry is registered (or the coordinator wants to do something else, like post
 surplus), transfer back to `food_equity_surplus_broker`.
 """
 
+def _writes_to_corpus(confirmed: bool = False, **_: Any) -> bool:
+    """Ask the coordinator to approve only the call that writes, not the preview."""
+    return bool(confirmed)
+
+
 try:
     from google.adk.agents import Agent
+    from google.adk.tools import FunctionTool
 
     intake_agent = Agent(
         name="pantry_intake_agent",
@@ -727,7 +767,8 @@ try:
             "with an AI.EMBED embedding so it is immediately searchable."
         ),
         instruction=INTAKE_INSTRUCTION,
-        tools=[build_pantry_profile, register_pantry],
+        # `confirmed` is the model's word; the ADK confirmation makes the write the human's call.
+        tools=[build_pantry_profile, FunctionTool(register_pantry, require_confirmation=_writes_to_corpus)],
     )
 except ImportError:
     intake_agent = None
