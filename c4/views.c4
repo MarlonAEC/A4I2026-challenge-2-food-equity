@@ -1,0 +1,88 @@
+views {
+  // 1. System Context View (C4 Level 1)
+  view index {
+    title 'System Context — Food Equity & Surplus Broker'
+    description 'High-level context showing actors, the surplus broker platform, and external integrations.'
+    include *
+    autoLayout TopBottom
+  }
+
+  // 2. Container View (C4 Level 2)
+  view containers of broker {
+    title 'Container Diagram — Broker Architecture'
+    description 'Internal containers: Web Console, FastAPI Backend, ADK Agent, Logistics Tools, MCP, and BigQuery.'
+    include *
+    include -> broker
+    include broker ->
+    autoLayout TopBottom
+  }
+
+  // 3. Logistics Tools Component View (C4 Level 3)
+  view logistics of broker.logistics-tools {
+    title 'Component Diagram — Uber Logistics Tool Suite'
+    description 'Deterministic domain tools handling shelf life, constraint filtering, decoy rejection, and traffic.'
+    include *
+    include -> broker.logistics-tools.*
+    include broker.logistics-tools.* ->
+    autoLayout LeftRight
+  }
+
+  // 4. BigQuery Data & Vector Layer Component View
+  view data-layer of broker.bigquery {
+    title 'Component Diagram — BigQuery Warehouse & Vector Store'
+    description 'Schema structure: tables, census tracts, vector embeddings, and spatial rescue deserts.'
+    include *
+    include -> broker.bigquery.*
+    include broker.bigquery.* ->
+    autoLayout TopBottom
+  }
+
+  // 5. Dynamic Flow: Grocer Spinach Rescue Scenario
+  dynamic view spinach-rescue-flow {
+    title 'Dynamic Flow — 6-Hour Perishable Spinach Dispatch & Cascade'
+    description 'Sequence of events from donor offer to decoy rejection, driver dispatch, and instant fallback.'
+
+    donor -> broker.web-ui '1. Submits 10 crates spinach with 6-hour deadline'
+    broker.web-ui -> broker.api-backend '2. POST /api/match'
+    broker.api-backend -> broker.logistics-tools.clock-calc '3. Calculate effective shelf-life window'
+    broker.logistics-tools.clock-calc -> broker.bigquery.shelf-life-data '4. Lookup spinach USDA shelf life'
+    broker.api-backend -> broker.logistics-tools.recall-checker '5. Screen for active FDA recalls'
+    broker.logistics-tools.recall-checker -> openfda '6. Query food recall API'
+    broker.api-backend -> broker.logistics-tools.matcher '7. Find and rank qualified pantries'
+    broker.logistics-tools.matcher -> broker.bigquery.vector-index '8. Run VECTOR_SEARCH on profile text'
+    broker.logistics-tools.matcher -> broker.bigquery.recipients-data '9. Check cold storage & capacity'
+    broker.logistics-tools.matcher -> broker.logistics-tools.matcher '10. Hard-filter Greenline decoy (No cold storage)'
+    broker.logistics-tools.matcher -> broker.bigquery.tract-demographics '11. Enrich with tract vehicle-insecurity %'
+    broker.api-backend -> broker.logistics-tools.traffic-router '12. Compute route driving time and congestion delay'
+    broker.logistics-tools.traffic-router -> chicago-traffic '13. Query Chicago live traffic speeds'
+    broker.api-backend -> broker.agent-engine.broker-agent '14. Synthesize 7-Part Match Brief'
+    broker.agent-engine.broker-agent -> gemini '15. Generate reasoned explanation and driver SMS'
+    broker.web-ui <- broker.api-backend '16. Render Match Card, Leaflet Map pins, and Decoy explanation'
+    coordinator -> broker.web-ui '17. Primary pantry declines offer: clicks [They said no]'
+    broker.web-ui -> broker.api-backend '18. POST /api/dispatch-fallback'
+    broker.api-backend -> broker.logistics-tools.cascading-dispatcher '19. Promote Backup #2 to primary'
+    broker.web-ui <- broker.api-backend '20. Instant re-dispatch with updated SMS alert'
+  }
+
+  // 6. Dynamic Flow: Conversational Pantry Intake
+  dynamic view pantry-onboarding-flow {
+    title 'Dynamic Flow — Conversational Pantry Intake & Onboarding'
+    description 'How a new community pantry is interviewed by Gemini and immediately indexed in BigQuery.'
+
+    pantry -> broker.web-ui '1. Enters pantry details in conversational onboarding modal'
+    broker.web-ui -> broker.api-backend '2. POST /api/intake'
+    broker.api-backend -> broker.agent-engine.intake-agent '3. Forward transcript to intake subagent'
+    broker.agent-engine.intake-agent -> gemini '4. Extract structured capacity schema & synthesize profile'
+    broker.agent-engine.intake-agent -> gemini '5. Generate vector embeddings'
+    broker.agent-engine.intake-agent -> broker.bigquery.recipients-data '6. Insert new recipient row with embeddings'
+    broker.web-ui <- broker.api-backend '7. Confirmation: Pantry is now live and searchable!'
+  }
+
+  // 7. Deployment View (Production GCP)
+  deployment view production {
+    title 'Deployment Diagram — Google Cloud Platform Production'
+    description 'Cloud Run container architecture, BigQuery dataset, and Vertex AI integrations.'
+    include *
+    autoLayout TopBottom
+  }
+}

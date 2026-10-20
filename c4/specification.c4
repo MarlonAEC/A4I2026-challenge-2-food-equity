@@ -1,0 +1,86 @@
+specification {
+  element actor {
+    style {
+      shape person
+      color slate
+    }
+  }
+
+  element system {
+    style {
+      shape rectangle
+      color primary
+    }
+  }
+
+  element external-system {
+    style {
+      shape rectangle
+      color muted
+    }
+  }
+
+  element container {
+    style {
+      shape rectangle
+      color indigo
+    }
+  }
+
+  element component {
+    style {
+      shape component
+      color sky
+    }
+  }
+
+  element database {
+    style {
+      shape storage
+      color blue
+    }
+  }
+
+  deploymentNode cloud-provider {
+    style {
+      color slate
+    }
+  }
+
+  deploymentNode region {
+    style {
+      color slate
+    }
+  }
+
+  deploymentNode compute-node {
+    style {
+      color indigo
+    }
+  }
+
+  deploymentNode data-node {
+    style {
+      color blue
+    }
+  }
+
+  deploymentNode device-node {
+    style {
+      color slate
+    }
+  }
+
+  tag frontend
+  tag backend
+  tag agent
+  tag logistics
+  tag database
+  tag external
+  tag civic
+  tag safety
+
+  relationship sync
+  relationship async
+  relationship data-stream
+}

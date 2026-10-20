@@ -1,0 +1,48 @@
+deployment {
+  gcp = cloud-provider 'Google Cloud Platform (qwiklabs-gcp-04-300332596f08)' {
+    description 'Production infrastructure hosted on Google Cloud Platform.'
+
+    us-region = region 'US Multi-Region (US / us-central1)' {
+      cloud-run = compute-node 'Cloud Run Service (rescue-dispatch)' {
+        technology 'Serverless Container (Python 3.11, Docker)'
+        description 'Auto-scaling service serving frontend assets, FastAPI endpoints, ADK agents, and logistics tools.'
+
+        instanceOf broker.web-ui
+        instanceOf broker.api-backend
+        instanceOf broker.agent-engine
+        instanceOf broker.logistics-tools
+      }
+
+      mcp-sidecar = compute-node 'MCP Toolbox Container / Process' {
+        technology 'Cloud Run / Sidecar container'
+        description 'Runs googleapis/genai-toolbox exposing BigQuery tools over MCP.'
+
+        instanceOf broker.mcp-toolbox
+      }
+
+      bq-instance = data-node 'BigQuery Enterprise' {
+        technology 'BigQuery Dataset (a4i_food)'
+        description 'High-scale analytical storage with integrated Vector Search.'
+
+        instanceOf broker.bigquery
+      }
+
+      vertex = compute-node 'Vertex AI Platform' {
+        technology 'Google Cloud AI'
+        description 'Hosts Gemini foundation models and embedding generation.'
+
+        instanceOf gemini
+      }
+    }
+  }
+
+  devices = device-node 'End User Devices' {
+    coordinator-pc = device-node 'Coordinator Workstation' {
+      technology 'Modern Web Browser'
+    }
+
+    driver-mobile = device-node 'Driver Mobile Phone' {
+      technology 'SMS / Mobile Browser'
+    }
+  }
+}
