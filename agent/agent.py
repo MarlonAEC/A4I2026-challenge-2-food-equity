@@ -39,7 +39,7 @@ try:
 
     root_agent = Agent(
         name="food_equity_surplus_broker",
-        model=os.environ.get("ADK_MODEL", "gemini-2.5-flash"),
+        model=os.environ.get("ADK_MODEL", "gemini-3.8-flash"),
         description=(
             "Real-time 'Uber for Food Rescue' broker that matches expiring restaurant/grocer "
             "surplus with verified food banks using BigQuery Vector Search and hard cold-chain constraints."

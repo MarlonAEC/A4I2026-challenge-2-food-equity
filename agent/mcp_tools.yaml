@@ -1,0 +1,40 @@
+# MCP Toolbox for Databases (googleapis/genai-toolbox) config — our Google-managed MCP server.
+# Trimmed from the official `--prebuilt bigquery` config down to schema-introspection + ad hoc
+# SQL tools (drops forecast/contribution/conversational-analytics, which need extra BigQuery
+# features we don't use). Served by scripts/run_mcp_toolbox.sh and consumed by agent/agent.py
+# via MCP_TOOLBOX_URL.
+sources:
+    bigquery-source:
+        kind: "bigquery"
+        project: ${BIGQUERY_PROJECT}
+        location: ${BIGQUERY_LOCATION:}
+
+tools:
+    execute_sql:
+        kind: bigquery-execute-sql
+        source: bigquery-source
+        description: Run an ad hoc SQL query against the a4i_food BigQuery dataset.
+    get_dataset_info:
+        kind: bigquery-get-dataset-info
+        source: bigquery-source
+        description: Get metadata about a BigQuery dataset (e.g. a4i_food).
+    get_table_info:
+        kind: bigquery-get-table-info
+        source: bigquery-source
+        description: Get schema metadata for a BigQuery table (e.g. recipient_embeddings, shelf_life, tract_demographics).
+    list_dataset_ids:
+        kind: bigquery-list-dataset-ids
+        source: bigquery-source
+        description: List the BigQuery dataset IDs available in the project.
+    list_table_ids:
+        kind: bigquery-list-table-ids
+        source: bigquery-source
+        description: List the table IDs available in a BigQuery dataset.
+
+toolsets:
+    data:
+        - execute_sql
+        - list_dataset_ids
+        - list_table_ids
+        - get_dataset_info
+        - get_table_info
