@@ -11,11 +11,7 @@ set -euo pipefail
 
 SERVICE_NAME="${1:-food-rescue-broker}"
 REGION="${2:-us-central1}"
-DEFAULT_PROJECT_ID="qwiklabs-gcp-04-300332596f08"
 GCLOUD_PROJECT="$(gcloud config get-value project 2>/dev/null || true)"
-if [[ -z "${GCLOUD_PROJECT}" || "${GCLOUD_PROJECT}" == "(unset)" ]]; then
-  GCLOUD_PROJECT="${DEFAULT_PROJECT_ID}"
-fi
 PROJECT_ID="${PROJECT_ID:-${GCLOUD_PROJECT}}"
 
 if [[ -z "${PROJECT_ID}" || "${PROJECT_ID}" == "(unset)" ]]; then
@@ -48,6 +44,11 @@ gcloud services enable \
 echo
 
 echo "3/4 Deploying ${SERVICE_NAME} to Cloud Run (min-instances=1 to prevent cold starts)..."
+ENV_VARS="GOOGLE_CLOUD_PROJECT=${PROJECT_ID},BQ_DATASET=a4i_food"
+if [[ -n "${GEMINI_API_KEY:-}" ]]; then
+  ENV_VARS="${ENV_VARS},GEMINI_API_KEY=${GEMINI_API_KEY}"
+fi
+
 gcloud run deploy "${SERVICE_NAME}" \
   --project="${PROJECT_ID}" \
   --source=. \
@@ -57,7 +58,7 @@ gcloud run deploy "${SERVICE_NAME}" \
   --min-instances=1 \
   --max-instances=5 \
   --memory=1Gi \
-  --set-env-vars="GOOGLE_CLOUD_PROJECT=${PROJECT_ID},BQ_DATASET=a4i_food" \
+  --set-env-vars="${ENV_VARS}" \
   --quiet
 
 SERVICE_URL="$(gcloud run services describe "${SERVICE_NAME}" \
