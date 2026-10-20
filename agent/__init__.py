@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 from pathlib import Path
-from dotenv import load_dotenv
 
-_ROOT_DIR = Path(__file__).resolve().parent.parent if "__file__" in globals() else Path.cwd()
-load_dotenv(_ROOT_DIR / ".env")
-load_dotenv()
+try:
+    from dotenv import load_dotenv
+    _ROOT_DIR = Path(__file__).resolve().parent.parent if "__file__" in globals() else Path.cwd()
+    load_dotenv(_ROOT_DIR / ".env")
+    load_dotenv()
+except ImportError:
+    pass
 
 import os
 
