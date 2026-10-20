@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from dotenv import load_dotenv
+try:
+    from dotenv import load_dotenv
 
-# Load .env from project root or current working directory
-_ROOT_DIR = Path(__file__).resolve().parent.parent if "__file__" in globals() else Path.cwd()
-load_dotenv(_ROOT_DIR / ".env")
-load_dotenv()
+    # Load .env from project root or current working directory
+    _ROOT_DIR = Path(__file__).resolve().parent.parent if "__file__" in globals() else Path.cwd()
+    load_dotenv(_ROOT_DIR / ".env")
+    load_dotenv()
+except ImportError:
+    pass
 
 from .prompt import SYSTEM_INSTRUCTION
 from .tools import (
