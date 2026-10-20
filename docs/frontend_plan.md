@@ -84,9 +84,12 @@ Request:
   "requires_pickup_van": true,
   "donor_lat": 41.8781,
   "donor_lon": -87.6298,
-  "declined_recipient_names": []
+  "declined_recipient_names": [],
+  "routing_policy": "equity_weighted | logistics_first"
 }
 ```
+
+`routing_policy` is optional and defaults to `"equity_weighted"`. The response echoes the normalized value as a top-level `routing_policy` field.
 
 Response (every field below is present on every call; nullable fields say so):
 
@@ -228,6 +231,60 @@ Seven coordinator questions the UI offers as chips (from README):
   "honest_take": "Logistics capacity dominates for bulk produce; need dominates for prepared meals and essentials."
 }
 ```
+
+---
+
+## Contract 4 — `POST /api/intake/profile` and `POST /api/intake/register` (Lane 2, Milestone 4D)
+
+Both take the coordinator's answers **in their own words**. Don't pre-classify them; `agent/intake.py` decides that "two fridges in the church kitchen" means `domestic`. Every field is optional, so send whatever has been answered so far.
+
+Request:
+
+```json
+{
+  "name": "Pilsen Pantry Collective",
+  "street": "1801 S Loomis St",
+  "city": "Chicago",
+  "zip_code": "60608",
+  "cold_storage_answer": "No walk-in, just two fridges in the church kitchen",
+  "pallet_handling_answer": "Hand-carry, it all comes in through the side door",
+  "pickup_window_answer": "We could get someone there in about 3 hours",
+  "transport_answer": "No van - a volunteer would drive over in their car",
+  "freezer_answer": "There's a small chest freezer",
+  "max_pallets_answer": "",
+  "state": "",
+  "weekly_households": 150,
+  "populations_served": "",
+  "service_days": "",
+  "food_needs": "fresh greens and vegetables for families",
+  "confirmed": false
+}
+```
+
+`confirmed` is read only by `/register`.
+
+`/profile` response (never writes):
+
+```json
+{
+  "status": "complete | needs_follow_up",
+  "record": { "name": "...", "cold_storage": "domestic", "frozen_storage": true, "loading_dock": false, "max_pallets": 1, "pickup_window_hours": 3, "refrigerated_transport": false, "...": "..." },
+  "profile_text": "string or null until complete",
+  "follow_up_questions": ["ask the first one next"],
+  "missing_fields": ["loading_dock"],
+  "interpretation": { "cold_storage": "'two fridges…' -> cold_storage='domestic'" }
+}
+```
+
+`/register` response: the same fields, with `status` one of:
+
+- `needs_follow_up`: answers incomplete. Nothing written.
+- `awaiting_confirmation`: complete, but `confirmed` was false. Read the profile back to the coordinator, then resend with `"confirmed": true`.
+- `registered`: written. Also returns `recipient_id`, `storage` (`bigquery:…` or `local_registry:…`), `embedding`, and `searchable_check` (`found`, `semantic_rank`, `passes_hard_filters`, `blocked_reason`). Say "they'll be offered food" only if `passes_hard_filters` is true.
+- `registered_without_embedding`: written, but not searchable yet. Say so.
+- `already_registered`: same name + ZIP already exists.
+
+A failed BigQuery write returns **HTTP 502** with `detail`. It never pretends to have saved.
 
 ---
 
