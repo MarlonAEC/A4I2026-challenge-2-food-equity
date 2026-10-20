@@ -2,19 +2,26 @@
 -- Lane 1 & 3: Live Vector Search + Spatial Geo Distance + Census Tract Need Join
 -- Connects directly to `a4i_food.recipient_embeddings` (created in queries/vector_search_reference.sql)
 -- and `a4i_food.tract_demographics`.
+--
+-- Mirrors the query in `_fetch_candidates` (agent/tools.py), which is what the agent runs.
+-- Keep the two in sync. Parameters: @query_text, @donor_lat, @donor_lon, @top_k.
+--
+-- `distance` is COSINE distance, so 1 - distance is cosine similarity. Census rates are
+-- fractions (0.145 = 14.5%); a candidate with no tract keeps NULL rates rather than an
+-- invented default. Hard filters (storage, clock, capacity, contradictions) run after
+-- this query, in the agent, and are not repeated here.
 -- ============================================================================
 
-WITH vector_candidates AS (
+WITH vs AS (
   SELECT
     base.recipient_id,
-    base.ein,
     base.name,
     base.street,
     base.city,
     base.state,
     base.zip_code,
-    base.latitude AS lat,
-    base.longitude AS lon,
+    base.latitude,
+    base.longitude,
     base.archetype,
     base.archetype_label,
     base.cold_storage,
@@ -29,7 +36,7 @@ WITH vector_candidates AS (
     base.service_days,
     base.profile_text,
     base.profile_source,
-    distance,
+    distance AS vector_distance,
     ROUND(1.0 - distance, 4) AS semantic_similarity,
     -- Straight-line distance in km from donor coordinates (@donor_lon, @donor_lat)
     ROUND(
@@ -38,15 +45,7 @@ WITH vector_candidates AS (
         ST_GEOGPOINT(@donor_lon, @donor_lat)
       ) / 1000.0,
       2
-    ) AS distance_km,
-    -- Flag contradictory profile text (Judge Trap #2: Harborview Neighbors Trust)
-    CASE
-      WHEN base.cold_storage IN ('walk-in', 'commercial')
-       AND LOWER(base.profile_text) LIKE '%no freezer%'
-       AND LOWER(base.profile_text) LIKE '%single shelf%'
-      THEN TRUE
-      ELSE FALSE
-    END AS has_profile_contradiction
+    ) AS distance_km
   FROM VECTOR_SEARCH(
     TABLE `a4i_food.recipient_embeddings`,
     'embedding',
@@ -56,41 +55,26 @@ WITH vector_candidates AS (
         endpoint => 'gemini-embedding-2'
       ).result AS embedding
     ),
-    top_k => 20,
+    top_k => @top_k,
+    distance_type => 'COSINE',
     options => '{"use_brute_force": true}'
   )
-),
-nearest_tract AS (
-  SELECT
-    vc.recipient_id,
-    ARRAY_AGG(
-      STRUCT(
-        td.geo_id AS tract_geoid,
-        ROUND(COALESCE(td.poverty_rate, 0.20) * 100.0, 1) AS poverty_rate,
-        ROUND(COALESCE(td.no_vehicle_rate, 0.15) * 100.0, 1) AS pct_no_vehicle,
-        ROUND(COALESCE(td.assistance_rate, 0.18) * 100.0, 1) AS assistance_rate,
-        td.median_income
-      )
-      ORDER BY ST_DISTANCE(
-        ST_GEOGPOINT(vc.lon, vc.lat),
-        ST_GEOGPOINT(td.tract_lon, td.tract_lat)
-      ) ASC
-      LIMIT 1
-    )[OFFSET(0)] AS tract
-  FROM vector_candidates vc
-  CROSS JOIN `a4i_food.tract_demographics` td
-  WHERE vc.lon IS NOT NULL AND vc.lat IS NOT NULL
-    AND td.tract_lon IS NOT NULL AND td.tract_lat IS NOT NULL
-  GROUP BY vc.recipient_id
 )
 SELECT
-  vc.*,
-  nt.tract.tract_geoid,
-  COALESCE(nt.tract.poverty_rate, 24.5) AS poverty_rate,
-  COALESCE(nt.tract.pct_no_vehicle, 21.0) AS pct_no_vehicle,
-  COALESCE(nt.tract.assistance_rate, 19.5) AS assistance_rate,
-  nt.tract.median_income
-FROM vector_candidates vc
-LEFT JOIN nearest_tract nt
-  ON vc.recipient_id = nt.recipient_id
-ORDER BY vc.distance ASC;
+  vs.*,
+  t.geo_id AS tract_geo_id,
+  t.poverty_rate,
+  t.no_vehicle_rate,
+  t.assistance_rate
+FROM vs
+-- Nearest tract with coordinates (a NULL distance would otherwise sort first).
+LEFT JOIN `a4i_food.tract_demographics` t
+  ON t.tract_lat IS NOT NULL AND t.tract_lon IS NOT NULL
+QUALIFY ROW_NUMBER() OVER (
+  PARTITION BY vs.recipient_id
+  ORDER BY ST_DISTANCE(
+    ST_GEOGPOINT(vs.longitude, vs.latitude),
+    ST_GEOGPOINT(t.tract_lon, t.tract_lat)
+  ) ASC
+) = 1
+ORDER BY vs.vector_distance ASC;

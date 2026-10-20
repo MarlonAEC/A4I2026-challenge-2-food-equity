@@ -2,6 +2,8 @@
 
 Review of `agent/tools.py` at commit `69cbe86` (branch `agent`), 2026-10-20. Line numbers refer to that version.
 
+> **Status:** all 19 issues are addressed on branch `fix/tools-issues`. See [Resolution](#resolution) at the end.
+
 **How issues were checked**
 - **Confirmed (live)**: reproduced through `adk web` / direct tool calls against BigQuery project `qwiklabs-gcp-04-300332596f08`.
 - **Confirmed (offline)**: reproduced with `DISABLE_BQ=1` (local fallback corpus).
@@ -166,3 +168,51 @@ Values `<= 1.0` are treated as fractions, so a percent-scale `0.8` (0.8%) become
 4. The rest.
 
 After fixing, run `scripts/verify_traps.py` **against live BigQuery**: set `GOOGLE_CLOUD_PROJECT` and make sure `DISABLE_BQ` is unset. Several traps currently pass only because of the hard-coding in #2, #3 and #10, so expect to update the checks rather than just re-run them.
+
+---
+
+## Resolution
+
+Fixed on branch `fix/tools-issues`. Verified with `scripts/verify_traps.py` against **both** live BigQuery (`qwiklabs-gcp-04-300332596f08`) and the offline corpus (as CI runs it), plus `python -m agent.tools`.
+
+### What the live data showed while fixing
+
+These findings changed the fixes, and they change the demo:
+
+- **The demo rows have no street address by design.** The notebook (Section 7) says the 9 `profile_source = 'planted'` rows "announce themselves: … no street address" and should be filtered out of anything called real. So #4 wasn't missing data; the tool was inventing addresses.
+- **Cedar and Maple really have 12h pickup windows.** The "4h" came only from `tools.py`'s overrides. With honest data they can't take a 6h spinach offer; they qualify for longer windows (e.g. a 24h produce offer).
+- **The hard-coded tract numbers were invented.** Cedar's nearest tract is 14.5% poverty / 16.2% no-vehicle (not 34.8% / 31.2%); Maple's is 8.9% / 10.9% (not 14.2% / 12.8%). Cedar still ranks ahead of Maple when both qualify, but neither is a high-need tract.
+- **67 of 192 recipients (30 of them neighborhood pantries) have `max_pallets = 0`.** The generated corpus uses 0 for small hand-carry pantries; the old filter excluded all of them from every offer.
+- **`VECTOR_SEARCH` defaulted to Euclidean distance.** `1 - distance` gave "similarities" around 0.2, below the 0.25 floor of the local keyword score, so `max(BigQuery, local)` meant the keyword scorer decided every live ranking.
+- **With the app's default settings (van required, 6h), live data has only one qualified recipient for spinach.** Without the van requirement there are several.
+
+### Per issue
+
+| # | Fix |
+|---|---|
+| 1 | A pickup window longer than the effective clock is rejected; the recipient's stated window is never rewritten. |
+| 2 | No reordering by name. `_explain_operational_ties` explains any pair with identical capability fields (cold/frozen storage, dock, van, pallets, pickup window) from their actual score components. |
+| 3 | Raw cosine similarity from BigQuery (`distance_type => 'COSINE'`). `planted_extra`, `planted_enrichments` and the local scorer's Greenline/Cedar/Maple boosts are gone. The offline corpus's 9 demo rows now mirror `a4i_food.recipients` exactly. |
+| 4 | No placeholder addresses. Matches carry `address` (null when there is no street), `address_note`, and `is_planted_teaching_case`; the agent prompt says never to make an address up. |
+| 5 | BigQuery errors are logged and returned as `search_backend = "bigquery_error"` with `search_error` and no matches. The offline corpus is used only when BigQuery isn't configured, or with `ALLOW_OFFLINE_FALLBACK=1`. |
+| 6 | `dispatch_pickup_and_fallback` refuses to run without a posting, and accepts and forwards `pallets_estimate`, `requires_cold_storage`, `requires_frozen`, `requires_pickup_van`, `donor_lat`, `donor_lon`. |
+| 7 | `max_pallets = 0` means hand-carry boxes: eligible for loads up to one pallet, rejected (with that reason) above it. `loading_dock` is returned and called out in `why_them` when pallets go to a site without a dock. It is not a hard filter, since the corpus has many no-dock sites with pallet capacity (liftgate / pallet jack). Intake writes `max_pallets = 0` for hand-carry pantries again. |
+| 8 | The product is resolved with the local rules, then its own `shelf_life` row (by `product_id`) is fetched with a timeout; per storage state the shorter figure wins (`shelf_life_source` says which). Spinach now gets Lettuce (leaf, spinach), 72h, live. |
+| 9 | Postings run in parallel (43s → ~9s live). `baseline_source`, real tract count, per-posting `search_backend`, numeric `equity_lift`, and a conclusion generated from the numbers (direction, few distinct winners, tracks below baseline, unmatched postings, non-live search or baseline). |
+| 10 | Removed: only decoys that were retrieved and filtered are reported. |
+| 11 | `check_shelf_life_clock` defaults `donor_deadline_hours` to 0 (infer from text). |
+| 12 | A product with no room-temperature figure (or "not recommended") but a refrigerated one is treated as needing cold storage, and the matcher uses that. Plain milk has no figure for either state in FoodKeeper ("see package"), so it still falls back to the donor's window. |
+| 13 | The split plan runs for bulk loads (≥ 4 pallets) or whenever #1 can't take the whole load, skips zero-capacity sites, and reports `unallocated_pallets`. |
+| 14 | Declines match exact names (case-insensitive) or IDs. |
+| 15 | Missing data stays missing: unknown pickup window → rejected with that reason; unknown tract rates → `null` and a neutral equity score; no default distance, ID, address, or capacity. |
+| 16 | Removed the food-name deadline guesses ("spinach" → 6h, …), the spinach `food_item` special case, and Harborview's by-name block (caught by what its text says instead). Clinical cold chain now covers vaccines/insulin and temperature-sensitive goods for clinics. The local concept groups remain, but only for the offline scorer. |
+| 17 | Every BigQuery call has a timeout (`BQ_TIMEOUT_S`, default 30s); every caught exception is logged. |
+| 18 | `_rate_to_pct` treats census rates as fractions, which both sources use, and returns `null` when missing. |
+| 19 | Removed `MATCH_SQL_PATH`, `UBER_RESCUE_TOOLS`, and the `run_equity_audit` alias. `sql/match_recipients.sql` now mirrors the live query (checked with a BigQuery dry run). |
+
+### Test changes
+
+`scripts/verify_traps.py` no longer asserts which organization wins, since that depended on the hard-coding:
+- **Trap 2** uses a frozen-protein offer, where Harborview is actually retrieved.
+- **Trap 3** checks that, of the tied pair, the higher-need one ranks first and the tie is explained, on a 24h produce offer both can take. It's skipped against a Cloud Run URL, because `/api/match` returns only 3 matches.
+- **Trap 4** declines whoever is #1 and checks the previous #2 is promoted. It runs without the van requirement, so live data has a backup to promote.

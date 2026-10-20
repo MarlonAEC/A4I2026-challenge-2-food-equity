@@ -21,11 +21,16 @@ Implements the required custom tools for Challenge 2 (Resilient Food Equity & Su
 from __future__ import annotations
 
 import json
+import logging
 import math
 import os
 import re
+from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Configuration & Constants
@@ -33,7 +38,6 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parent.parent
 FOODKEEPER_JSON_PATH = REPO_ROOT / "data" / "foodkeeper.json"
 PROFILE_COMPONENTS_PATH = REPO_ROOT / "data" / "profile_components.json"
-MATCH_SQL_PATH = REPO_ROOT / "sql" / "match_recipients.sql"
 # Pantries onboarded by the conversational intake agent (agent/intake.py) while BigQuery is
 # unreachable. Appended to the local fallback corpus so they are searchable immediately.
 INTAKE_REGISTRY_PATH = Path(
@@ -43,6 +47,8 @@ INTAKE_REGISTRY_PATH = Path(
 DEFAULT_DATASET = os.environ.get("BQ_DATASET", "a4i_food")
 DEFAULT_LOCATION = os.environ.get("BQ_LOCATION", "US")
 EMBED_ENDPOINT = os.environ.get("EMBED_ENDPOINT", "gemini-embedding-2")
+# Every BigQuery call waits at most this long, so a stuck query can't hang an agent turn.
+BQ_TIMEOUT_S = float(os.environ.get("BQ_TIMEOUT_S", "30"))
 
 # Default donor coordinates (Downtown Chicago loop / central metro fallback)
 DEFAULT_DONOR_LAT = float(os.environ.get("DEFAULT_DONOR_LAT", "41.8781"))
@@ -267,24 +273,27 @@ def _load_local_foodkeeper() -> list[dict[str, Any]]:
     return records
 
 
+def _env_flag(name: str) -> bool:
+    return os.environ.get(name, "").lower() in ("1", "true", "yes")
+
+
 def _get_bq_client():
     """Return an authenticated BigQuery Client if available, else None."""
-    if os.environ.get("DISABLE_BQ", "").lower() in ("1", "true", "yes"):
-        return None
-    if os.environ.get("DISABLE_LIVE_BQ", "").lower() in ("1", "true", "yes"):
+    if _env_flag("DISABLE_BQ") or _env_flag("DISABLE_LIVE_BQ"):
         return None
     project_id = (
         os.environ.get("GOOGLE_CLOUD_PROJECT")
         or os.environ.get("GCP_PROJECT")
         or os.environ.get("PROJECT_ID")
     )
-    if not project_id and os.environ.get("FORCE_BQ", "").lower() not in ("1", "true", "yes"):
+    if not project_id and not _env_flag("FORCE_BQ"):
         return None
     try:
         from google.cloud import bigquery  # type: ignore
 
         return bigquery.Client(project=project_id, location=DEFAULT_LOCATION)
     except Exception:
+        logger.exception("Could not create a BigQuery client")
         return None
 
 
@@ -310,14 +319,10 @@ def _infer_posting_attributes(
             m_day = re.search(r"(\d+(?:\.\d+)?)\s*days?", text_lower)
             if m_hr:
                 donor_deadline_hours = float(m_hr.group(1))
-            elif "by 8pm" in text_lower or "before 8" in text_lower or "spinach" in text_lower:
-                donor_deadline_hours = 6.0
-            elif "tonight" in text_lower or "deli case" in text_lower:
-                donor_deadline_hours = 4.0
-            elif "this morning" in text_lower or "blueberries" in text_lower:
-                donor_deadline_hours = 12.0
             elif m_day:
                 donor_deadline_hours = float(m_day.group(1)) * 24.0
+            elif re.search(r"tonight|end of (the )?day|close of business", text_lower):
+                donor_deadline_hours = 4.0
             else:
                 donor_deadline_hours = 8.0
 
@@ -416,10 +421,14 @@ def _infer_posting_attributes(
         else:
             pallets_estimate = 1
 
-    # 5. Clean concise food_item summary
-    food_item = food_description.strip()
-    if "spinach" in text_lower and "10 crates" in text_lower:
-        food_item = "Fresh spinach (10 crates)"
+    # 5. Concise food_item summary: the offer's first clause ("10 crates of spinach")
+    food_item = re.split(r"[,;]| - ", food_description.strip())[0].strip() or food_description.strip()
+
+    # 6. Clinical cold chain: medical goods, or anything temperature-sensitive for a clinic
+    medical_goods = re.search(r"vaccine|insulin|biologic", text_lower)
+    clinical_cold = re.search(r"temperature-sensitive|cold chain", text_lower) and re.search(
+        r"clinic|supplement|medical|health", text_lower
+    )
 
     return {
         "food_item": food_item,
@@ -427,9 +436,7 @@ def _infer_posting_attributes(
         "pallets_estimate": int(pallets_estimate),
         "requires_cold_storage": bool(requires_cold_storage),
         "requires_frozen": bool(requires_frozen),
-        "requires_medical_cold": bool(
-            "clinic" in text_lower and "temperature-sensitive" in text_lower
-        ),
+        "requires_medical_cold": bool(medical_goods or clinical_cold),
         "is_sealed": "sealed" in text_lower,
     }
 
@@ -448,29 +455,74 @@ def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return round(2 * r_earth * math.asin(math.sqrt(a)), 2)
 
 
+def _cross_check_shelf_life(rec: dict[str, Any]) -> tuple[dict[str, Any], str]:
+    """Compare a resolved FoodKeeper product with its `a4i_food.shelf_life` row.
+
+    Both come from the same FoodKeeper export but were parsed separately (e.g. Lettuce
+    (leaf, spinach) is 72h locally vs. 168h in BigQuery). Per storage state, keep the
+    shorter figure: a broker should not plan on the best case (Notebook Section 8).
+
+    Returns:
+        (record, source) where `source` says which data the hours came from.
+    """
+    local = "data/foodkeeper.json"
+    client = _get_bq_client()
+    if client is None or not rec.get("product_id"):
+        return rec, local
+    try:
+        from google.cloud import bigquery  # type: ignore
+
+        sql = f"""
+        SELECT refrigerated_hours, refrigerated_note, pantry_hours, pantry_note
+        FROM `{client.project}.{DEFAULT_DATASET}.shelf_life`
+        WHERE product_id = @pid
+        LIMIT 1
+        """
+        job_config = bigquery.QueryJobConfig(
+            query_parameters=[bigquery.ScalarQueryParameter("pid", "STRING", str(rec["product_id"]))]
+        )
+        rows = list(client.query(sql, job_config=job_config).result(timeout=BQ_TIMEOUT_S))
+    except Exception:
+        logger.exception("shelf_life cross-check failed; using %s only", local)
+        return rec, f"{local} (BigQuery cross-check failed)"
+    if not rows:
+        return rec, f"{local} (product not in BigQuery shelf_life)"
+
+    bq = dict(rows[0])
+    merged = dict(rec)
+    for state in ("refrigerated", "pantry"):
+        bq_hours, ours = bq.get(f"{state}_hours"), merged.get(f"{state}_hours")
+        if bq_hours is not None and ours is not None and bq_hours < ours:
+            merged[f"{state}_hours"] = int(bq_hours)
+            merged[f"{state}_note"] = bq.get(f"{state}_note") or "ok"
+    return merged, f"{local} + bigquery:{DEFAULT_DATASET}.shelf_life (shorter figure kept)"
+
+
 # ---------------------------------------------------------------------------
 # Milestone 3A: Shelf-Life Clock Tool
 # ---------------------------------------------------------------------------
 def check_shelf_life_clock(
     food_description: str = "",
-    donor_deadline_hours: float = 6.0,
+    donor_deadline_hours: float = 0.0,
     storage_state: str = "auto",
     requires_refrigeration: bool | None = None,
     food_item: str = "",
 ) -> dict[str, Any]:
     """Calculate the effective rescue clock by checking USDA FoodKeeper shelf life.
 
-    Searches `a4i_food.shelf_life` (via BigQuery vector/text search with a local
-    `data/foodkeeper.json` fallback) so products hidden in subtitles—such as
-    "Spinach" living under "Lettuce (leaf, spinach)"—are accurately matched.
-    Explicitly handles the 4 USDA sentinel strings (`indefinitely`,
-    `not recommended`, `package use-by date`, `when ripe`) and sealed-package
-    donations so they never become false `0` hours.
+    Resolves the product against the 661 FoodKeeper entries (`data/foodkeeper.json`),
+    so products hidden in subtitles—such as "Spinach" living under "Lettuce (leaf,
+    spinach)"—are accurately matched, then cross-checks that product's row in
+    `a4i_food.shelf_life` and keeps the more conservative figure. Explicitly handles the
+    4 USDA sentinel strings (`indefinitely`, `not recommended`, `package use-by date`,
+    `when ripe`) and sealed-package donations so they never become false `0` hours, and
+    treats food whose room-temperature storage is "not recommended" as needing cold storage.
 
     Args:
         food_description: Free-text description of the food or surplus posting
             (e.g., "10 crates of spinach, harvested yesterday, needs cold storage").
-        donor_deadline_hours: Hours until the donor's dock deadline or cutoff.
+        donor_deadline_hours: Hours until the donor's dock deadline or cutoff
+            (0 = infer from the posting text).
         storage_state: One of "auto", "refrigerated", "pantry", or "frozen".
         requires_refrigeration: Optional alias for cold storage requirement (used by app/main.py).
         food_item: Optional alias for `food_description` (used by app/main.py).
@@ -556,54 +608,6 @@ def check_shelf_life_clock(
 
     # High-precision domain rules + subtitle/keyword scoring over the 661 USDA products
     matched_rec: dict[str, Any] | None = None
-
-    # Check if BigQuery shelf_life table has a direct match or embedding search first
-    client = _get_bq_client()
-    if client is not None and products:
-        try:
-            project_id = client.project
-            sql = f"""
-            SELECT product_id, product_name, product_subtitle, keywords, category,
-                   refrigerated_hours, refrigerated_note, pantry_hours, pantry_note
-            FROM `{project_id}.{DEFAULT_DATASET}.shelf_life`
-            WHERE LOWER(product_name) LIKE @q
-               OR LOWER(product_subtitle) LIKE @q
-               OR LOWER(keywords) LIKE @q
-            LIMIT 5
-            """
-            from google.cloud import bigquery  # type: ignore
-
-            # Extract key food noun for BQ query
-            probe = "spinach" if "spinach" in text_lower else text_lower.split(",")[0][:30]
-            job_config = bigquery.QueryJobConfig(
-                query_parameters=[
-                    bigquery.ScalarQueryParameter("q", "STRING", f"%{probe.strip()}%")
-                ]
-            )
-            rows = list(client.query(sql, job_config=job_config).result())
-            if rows:
-                r0 = dict(rows[0])
-                matched_rec = {
-                    "product_id": str(r0.get("product_id", "")),
-                    "product_name": str(r0.get("product_name", "")),
-                    "product_subtitle": str(r0.get("product_subtitle", "")),
-                    "keywords": str(r0.get("keywords", "")),
-                    "category": str(r0.get("category", "")),
-                    "refrigerated_hours": (
-                        int(r0["refrigerated_hours"])
-                        if r0.get("refrigerated_hours") is not None
-                        else None
-                    ),
-                    "refrigerated_note": str(r0.get("refrigerated_note") or "ok"),
-                    "pantry_hours": (
-                        int(r0["pantry_hours"])
-                        if r0.get("pantry_hours") is not None
-                        else None
-                    ),
-                    "pantry_note": str(r0.get("pantry_note") or "ok"),
-                }
-        except Exception:
-            matched_rec = None
 
     # Local semantic + subtitle/keyword resolver (handles all 661 FoodKeeper entries)
     if matched_rec is None and products:
@@ -735,6 +739,24 @@ def check_shelf_life_clock(
             "caveat": note,
         }
 
+    matched_rec, shelf_life_source = _cross_check_shelf_life(matched_rec)
+
+    # FoodKeeper gives no room-temperature figure for this food (or says "not recommended")
+    # but does give a refrigerated one: plan for the fridge, not for the donor's whole window.
+    requires_cold = inferred["requires_cold_storage"]
+    cold_upgrade_note = ""
+    if (
+        resolved_state == "pantry"
+        and matched_rec.get("pantry_hours") is None
+        and matched_rec.get("refrigerated_hours") is not None
+    ):
+        resolved_state = "refrigerated"
+        requires_cold = True
+        cold_upgrade_note = (
+            " FoodKeeper gives no safe room-temperature time for this product, only a "
+            "refrigerated one, so it is treated as needing cold storage."
+        )
+
     # Select refrigerated vs pantry hours from the matched record
     if resolved_state == "refrigerated":
         usda_hours = matched_rec.get("refrigerated_hours")
@@ -745,11 +767,6 @@ def check_shelf_life_clock(
     else:
         usda_hours = matched_rec.get("pantry_hours")
         sentinel_note = matched_rec.get("pantry_note", "ok")
-        # If pantry is not recommended or unspecified, check if refrigerated figure exists
-        if usda_hours is None and matched_rec.get("refrigerated_hours") is not None:
-            if sentinel_note == "not_recommended":
-                # Keep None for pantry, note that refrigeration is required
-                pass
 
     # Effective clock = min(donor_deadline_hours, usda_hours) when usda_hours is a number
     if usda_hours is not None and usda_hours > 0:
@@ -783,11 +800,17 @@ def check_shelf_life_clock(
             f"Matched USDA FoodKeeper '{display_prod}' — sentinel 'when ripe' (72h conservative). "
             f"Effective window: {effective_hours:g}h. Consumer home-storage guidance."
         )
+    elif usda_hours is None:
+        note_text = (
+            f"Matched USDA FoodKeeper '{display_prod}', which gives no {resolved_state} "
+            f"duration ({sentinel_note}). Using donor's {deadline:g}h deadline."
+        )
     else:
         note_text = (
             f"Matched USDA FoodKeeper '{display_prod}' ({usda_hours}h {resolved_state}) - "
             f"consumer home-storage guidance, capped by donor's {deadline:g}h deadline."
         )
+    note_text += cold_upgrade_note
 
     return {
         "food_item": inferred["food_item"],
@@ -798,8 +821,8 @@ def check_shelf_life_clock(
             int(effective_hours) if effective_hours.is_integer() else round(effective_hours, 1)
         ),
         "storage_state": resolved_state,
-        "requires_cold_storage": inferred["requires_cold_storage"],
-        "requires_refrigeration": inferred["requires_cold_storage"],
+        "requires_cold_storage": requires_cold,
+        "requires_refrigeration": requires_cold,
         "requires_frozen": inferred["requires_frozen"],
         "matched_product": display_prod,
         "matched_usda_product": display_prod,
@@ -807,6 +830,7 @@ def check_shelf_life_clock(
         "status": sentinel_note,
         "shelf_life_note": note_text,
         "caveat": note_text,
+        "shelf_life_source": shelf_life_source,
     }
 
 
@@ -814,288 +838,85 @@ def check_shelf_life_clock(
 # Internal Helpers: Recipient Corpus Retrieval (BigQuery VECTOR_SEARCH + Local Fallback)
 # ---------------------------------------------------------------------------
 def _build_local_fallback_corpus() -> list[dict[str, Any]]:
-    """Build a realistic deterministic corpus when BigQuery is unreachable locally.
+    """Build a deterministic offline corpus for development and CI without BigQuery.
 
-    Includes all 9 planted teaching cases from Notebook Section 7 (with their exact
-    names, profiles, and flags) plus realistic metro organizations across archetypes
-    and ACS census tract demographics (`poverty_rate`, `pct_no_vehicle`).
+    Includes all 9 planted teaching cases exactly as they are in `a4i_food.recipients`,
+    plus sample organizations across archetypes (`profile_source = 'offline_sample'`:
+    invented names and addresses, never to be dispatched to) and pantries registered
+    offline by the intake agent.
     """
-    centre_lat, centre_lon = DEFAULT_DONOR_LAT, DEFAULT_DONOR_LON
-
-    # 1. All 9 planted teaching cases from Notebook Section 7
+    # 1. The 9 planted teaching cases, mirroring `a4i_food.recipients` (Notebook Section 7)
+    #    so offline runs face the same traps as live ones: invented organizations with no
+    #    street address by design, 12h pickup windows, and coordinates at the metro centre.
+    #    Census rates are each row's nearest tract in `a4i_food.tract_demographics`.
+    planted_base: dict[str, Any] = {
+        "street": "",
+        "city": "Chicago",
+        "state": "IL",
+        "zip_code": "",
+        "archetype": "planted",
+        "archetype_label": "Planted teaching case",
+        "cold_storage": "walk-in",
+        "frozen_storage": False,
+        "loading_dock": False,
+        "refrigerated_transport": False,
+        "max_pallets": 3,
+        "pickup_window_hours": 12,
+        "weekly_households": 200,
+        "reported_income": 0.0,
+        "populations_served": "General public",
+        "service_days": "Monday, Wednesday, Friday",
+        "profile_source": "planted",
+    }
+    vocab = (
+        "Neighborhood food distribution serving local families. {} "
+        "We take fresh produce weekly. Open Tuesday, Thursday."
+    )
+    planted_rows: list[tuple[int, str, float, float, float, float, dict[str, Any], str]] = [
+        # (recipient_id, name, latitude, longitude, poverty_rate, no_vehicle_rate, flags, profile_text)
+        (184, "Greenline Community Pantry", 41.811, -87.742, 0.153, 0.166,
+         {"cold_storage": "none", "max_pallets": 1},
+         "Our families ask for fresh greens and salad vegetables more than anything else. "
+         "We have no refrigeration of any kind - dry storage only - so we can only take "
+         "produce that will be handed out the same morning it arrives."),
+        (185, "Harborview Neighbors Trust", 41.823, -87.730, 0.071, 0.289,
+         {"frozen_storage": True, "max_pallets": 6},
+         "We operate a large walk-in freezer and can accept full pallets of frozen protein. "
+         "Storage is a single shelf in a shared cupboard and we have no freezer at present."),
+        (186, "Cedar Street Produce Alliance", 41.835, -87.718, 0.145, 0.162,
+         {"loading_dock": True, "refrigerated_transport": True, "max_pallets": 10, "weekly_households": 600},
+         "Produce-focused redistribution with a walk-in cooler and a refrigerated van. We turn "
+         "fresh fruit and vegetables within 48 hours and serve about 600 households a week."),
+        (187, "Maple Street Produce Alliance", 41.847, -87.742, 0.089, 0.109,
+         {"loading_dock": True, "refrigerated_transport": True, "max_pallets": 10, "weekly_households": 600},
+         "Fresh produce hub with walk-in refrigeration and our own reefer truck. Roughly 600 "
+         "households weekly, and perishables move through us in under two days."),
+        (188, "Ridgeway Avenue Food Ministry", 41.859, -87.730, 0.405, 0.408, {},
+         vocab.format("We have cold chain capacity for palletized perishables and can receive at dock height.")),
+        (189, "Southline Neighbors Pantry", 41.811, -87.718, 0.137, 0.106, {},
+         vocab.format("There is a walk-in cooler out back and a second one for overflow.")),
+        (190, "Third Ward Community Table", 41.823, -87.742, 0.058, 0.080, {},
+         vocab.format("We have a fridge. It is not big but it works.")),
+        (191, "Brookfield Family Resource Center", 41.835, -87.730, 0.134, 0.188, {},
+         vocab.format("Refrigerated storage available on site.")),
+        (192, "Lakeshore Mutual Aid Collective", 41.847, -87.718, 0.248, 0.212,
+         {"cold_storage": "none"},
+         vocab.format("Chilled holding for short-term storage of temperature-sensitive goods.")),
+    ]
     planted_cases = [
         {
-            "recipient_id": 184,
-            "ein": "P00000000",
-            "name": "Greenline Community Pantry",
-            "street": "412 N HALSTED ST",
-            "city": "CHICAGO",
-            "state": "IL",
-            "zip_code": "60642",
-            "latitude": centre_lat - 0.024,
-            "longitude": centre_lon - 0.012,
-            "archetype": "planted",
-            "archetype_label": "Planted teaching case",
-            "cold_storage": "none",
-            "frozen_storage": False,
-            "loading_dock": False,
-            "refrigerated_transport": False,
-            "max_pallets": 1,
-            "pickup_window_hours": 12,
-            "weekly_households": 200,
-            "reported_income": 0.0,
-            "populations_served": "General public",
-            "service_days": "Monday, Wednesday, Friday",
-            "profile_text": (
-                "Our families ask for fresh greens and salad vegetables more than anything else. "
-                "We have no refrigeration of any kind - dry storage only - so we can only take "
-                "produce that will be handed out the same morning it arrives."
-            ),
-            "profile_source": "planted",
-            "poverty_rate": 0.284,
-            "no_vehicle_rate": 0.241,
-        },
-        {
-            "recipient_id": 185,
-            "ein": "P00000001",
-            "name": "Harborview Neighbors Trust",
-            "street": "850 W BELMONT AVE",
-            "city": "CHICAGO",
-            "state": "IL",
-            "zip_code": "60657",
-            "latitude": centre_lat - 0.012,
-            "longitude": centre_lon,
-            "archetype": "planted",
-            "archetype_label": "Planted teaching case",
-            "cold_storage": "walk-in",
-            "frozen_storage": True,
-            "loading_dock": False,
-            "refrigerated_transport": False,
-            "max_pallets": 6,
-            "pickup_window_hours": 12,
-            "weekly_households": 200,
-            "reported_income": 0.0,
-            "populations_served": "General public",
-            "service_days": "Monday, Wednesday, Friday",
-            "profile_text": (
-                "We operate a large walk-in freezer and can accept full pallets of frozen protein. "
-                "Storage is a single shelf in a shared cupboard and we have no freezer at present."
-            ),
-            "profile_source": "planted",
-            "poverty_rate": 0.192,
-            "no_vehicle_rate": 0.185,
-        },
-        {
-            "recipient_id": 186,
-            "ein": "P00000002",
-            "name": "Cedar Street Produce Alliance",
-            "street": "2140 S KEDZIE AVE",
-            "city": "CHICAGO",
-            "state": "IL",
-            "zip_code": "60623",
-            "latitude": centre_lat - 0.015,
-            "longitude": centre_lon - 0.022,
-            "archetype": "planted",
-            "archetype_label": "Planted teaching case",
-            "cold_storage": "walk-in",
-            "frozen_storage": False,
-            "loading_dock": True,
-            "refrigerated_transport": True,
-            "max_pallets": 10,
-            "pickup_window_hours": 4,
-            "weekly_households": 600,
-            "reported_income": 420000.0,
-            "populations_served": "Low-income families with children",
-            "service_days": "Monday, Wednesday, Friday",
-            "profile_text": (
-                "Produce-focused redistribution with a walk-in cooler and a refrigerated van. "
-                "We turn fresh fruit and vegetables within 48 hours and serve about 600 households a week."
-            ),
-            "profile_source": "planted",
-            "poverty_rate": 0.348,
-            "no_vehicle_rate": 0.312,
-        },
-        {
-            "recipient_id": 187,
-            "ein": "P00000003",
-            "name": "Maple Street Produce Alliance",
-            "street": "3810 N LINCOLN AVE",
-            "city": "CHICAGO",
-            "state": "IL",
-            "zip_code": "60613",
-            "latitude": centre_lat + 0.032,
-            "longitude": centre_lon - 0.018,
-            "archetype": "planted",
-            "archetype_label": "Planted teaching case",
-            "cold_storage": "walk-in",
-            "frozen_storage": False,
-            "loading_dock": True,
-            "refrigerated_transport": True,
-            "max_pallets": 10,
-            "pickup_window_hours": 4,
-            "weekly_households": 600,
-            "reported_income": 410000.0,
-            "populations_served": "General public",
-            "service_days": "Monday, Wednesday, Friday",
-            "profile_text": (
-                "Fresh produce hub with walk-in refrigeration and our own reefer truck. "
-                "Roughly 600 households weekly, and perishables move through us in under two days."
-            ),
-            "profile_source": "planted",
-            "poverty_rate": 0.142,
-            "no_vehicle_rate": 0.128,
-        },
-        {
-            "recipient_id": 188,
-            "ein": "P00000004",
-            "name": "Ridgeway Avenue Food Ministry",
-            "street": "1620 S RIDGEWAY AVE",
-            "city": "CHICAGO",
-            "state": "IL",
-            "zip_code": "60623",
-            "latitude": centre_lat + 0.024,
-            "longitude": centre_lon,
-            "archetype": "planted",
-            "archetype_label": "Planted teaching case",
-            "cold_storage": "walk-in",
-            "frozen_storage": False,
-            "loading_dock": True,
-            "refrigerated_transport": False,
-            "max_pallets": 3,
-            "pickup_window_hours": 6,
-            "weekly_households": 250,
-            "reported_income": 180000.0,
-            "populations_served": "General public",
-            "service_days": "Tuesday, Thursday",
-            "profile_text": (
-                "Neighborhood food distribution serving local families. We have cold chain capacity "
-                "for palletized perishables and can receive at dock height. We take fresh produce "
-                "weekly. Open Tuesday, Thursday."
-            ),
-            "profile_source": "planted",
-            "poverty_rate": 0.295,
-            "no_vehicle_rate": 0.254,
-        },
-        {
-            "recipient_id": 189,
-            "ein": "P00000005",
-            "name": "Southline Neighbors Pantry",
-            "street": "6315 S COTTAGE GROVE AVE",
-            "city": "CHICAGO",
-            "state": "IL",
-            "zip_code": "60637",
-            "latitude": centre_lat - 0.024,
-            "longitude": centre_lon + 0.012,
-            "archetype": "planted",
-            "archetype_label": "Planted teaching case",
-            "cold_storage": "walk-in",
-            "frozen_storage": False,
-            "loading_dock": False,
-            "refrigerated_transport": False,
-            "max_pallets": 3,
-            "pickup_window_hours": 6,
-            "weekly_households": 220,
-            "reported_income": 145000.0,
-            "populations_served": "General public",
-            "service_days": "Tuesday, Thursday",
-            "profile_text": (
-                "Neighborhood food distribution serving local families. There is a walk-in cooler "
-                "out back and a second one for overflow. We take fresh produce weekly. Open Tuesday, Thursday."
-            ),
-            "profile_source": "planted",
-            "poverty_rate": 0.331,
-            "no_vehicle_rate": 0.289,
-        },
-        {
-            "recipient_id": 190,
-            "ein": "P00000006",
-            "name": "Third Ward Community Table",
-            "street": "4710 S STATE ST",
-            "city": "CHICAGO",
-            "state": "IL",
-            "zip_code": "60609",
-            "latitude": centre_lat - 0.012,
-            "longitude": centre_lon - 0.012,
-            "archetype": "planted",
-            "archetype_label": "Planted teaching case",
-            "cold_storage": "domestic",
-            "frozen_storage": False,
-            "loading_dock": False,
-            "refrigerated_transport": False,
-            "max_pallets": 1,
-            "pickup_window_hours": 8,
-            "weekly_households": 180,
-            "reported_income": 65000.0,
-            "populations_served": "General public",
-            "service_days": "Tuesday, Thursday",
-            "profile_text": (
-                "Neighborhood food distribution serving local families. We have a fridge. It is not "
-                "big but it works. We take fresh produce weekly. Open Tuesday, Thursday."
-            ),
-            "profile_source": "planted",
-            "poverty_rate": 0.302,
-            "no_vehicle_rate": 0.271,
-        },
-        {
-            "recipient_id": 191,
-            "ein": "P00000007",
-            "name": "Brookfield Family Resource Center",
-            "street": "2910 W ROOSEVELT RD",
-            "city": "CHICAGO",
-            "state": "IL",
-            "zip_code": "60612",
-            "latitude": centre_lat,
-            "longitude": centre_lon,
-            "archetype": "planted",
-            "archetype_label": "Planted teaching case",
-            "cold_storage": "walk-in",
-            "frozen_storage": False,
-            "loading_dock": False,
-            "refrigerated_transport": False,
-            "max_pallets": 3,
-            "pickup_window_hours": 6,
-            "weekly_households": 240,
-            "reported_income": 210000.0,
-            "populations_served": "General public",
-            "service_days": "Tuesday, Thursday",
-            "profile_text": (
-                "Neighborhood food distribution serving local families. Refrigerated storage available "
-                "on site. We take fresh produce weekly. Open Tuesday, Thursday."
-            ),
-            "profile_source": "planted",
-            "poverty_rate": 0.318,
-            "no_vehicle_rate": 0.264,
-        },
-        {
-            "recipient_id": 192,
-            "ein": "P00000008",
-            "name": "Lakeshore Mutual Aid Collective",
-            "street": "1540 W DEVON AVE",
-            "city": "CHICAGO",
-            "state": "IL",
-            "zip_code": "60660",
-            "latitude": centre_lat + 0.012,
-            "longitude": centre_lon + 0.012,
-            "archetype": "planted",
-            "archetype_label": "Planted teaching case",
-            "cold_storage": "commercial",
-            "frozen_storage": False,
-            "loading_dock": False,
-            "refrigerated_transport": True,
-            "max_pallets": 3,
-            "pickup_window_hours": 4,
-            "weekly_households": 260,
-            "reported_income": 195000.0,
-            "populations_served": "General public",
-            "service_days": "Tuesday, Thursday",
-            "profile_text": (
-                "Neighborhood food distribution serving local families. Chilled holding for short-term "
-                "storage of temperature-sensitive goods. We take fresh produce weekly. Open Tuesday, Thursday."
-            ),
-            "profile_source": "planted",
-            "poverty_rate": 0.246,
-            "no_vehicle_rate": 0.238,
-        },
+            **planted_base,
+            **flags,
+            "recipient_id": rid,
+            "ein": f"P{rid - 184:08d}",
+            "name": name,
+            "latitude": lat,
+            "longitude": lon,
+            "poverty_rate": poverty,
+            "no_vehicle_rate": no_vehicle,
+            "profile_text": text,
+        }
+        for rid, name, lat, lon, poverty, no_vehicle, flags, text in planted_rows
     ]
 
     # 2. Representative generated organizations covering all 3 tracks (Retail, Farm, Essentials)
@@ -1128,7 +949,7 @@ def _build_local_fallback_corpus() -> list[dict[str, Any]]:
                 "van is on the road daily and can collect within 3 hours. High need for fresh "
                 "salad greens, spinach, produce, dairy, and prepared meals."
             ),
-            "profile_source": "generated",
+            "profile_source": "offline_sample",
             "poverty_rate": 0.314,
             "no_vehicle_rate": 0.268,
         },
@@ -1160,7 +981,7 @@ def _build_local_fallback_corpus() -> list[dict[str, Any]]:
                 "within 2 hours. Fresh produce, dairy, milk, yogurt, and prepared deli items "
                 "move best for us because we distribute everything the same day."
             ),
-            "profile_source": "generated",
+            "profile_source": "offline_sample",
             "poverty_rate": 0.382,
             "no_vehicle_rate": 0.335,
         },
@@ -1192,7 +1013,7 @@ def _build_local_fallback_corpus() -> list[dict[str, Any]]:
                 "when a farm or distributor has bulk potatoes, winter squash, berries, or full "
                 "truckloads to move."
             ),
-            "profile_source": "generated",
+            "profile_source": "offline_sample",
             "poverty_rate": 0.228,
             "no_vehicle_rate": 0.174,
         },
@@ -1223,7 +1044,7 @@ def _build_local_fallback_corpus() -> list[dict[str, Any]]:
                 "medical food pantry. Monitored medical-grade cold storage for temperature-sensitive "
                 "nutritional supplements, sealed infant formula, and pediatric essentials."
             ),
-            "profile_source": "generated",
+            "profile_source": "offline_sample",
             "poverty_rate": 0.276,
             "no_vehicle_rate": 0.249,
         },
@@ -1254,7 +1075,7 @@ def _build_local_fallback_corpus() -> list[dict[str, Any]]:
                 "baby wipes, and sealed infant formula to 410 families weekly. Dry warehouse "
                 "shelving can accept palletized cases of diapers and shelf-stable baby supplies."
             ),
-            "profile_source": "generated",
+            "profile_source": "offline_sample",
             "poverty_rate": 0.342,
             "no_vehicle_rate": 0.319,
         },
@@ -1286,7 +1107,7 @@ def _build_local_fallback_corpus() -> list[dict[str, Any]]:
                 "We immediately use prepared sandwiches, deli salads, day-old bread, pastries, "
                 "milk, and fresh greens."
             ),
-            "profile_source": "generated",
+            "profile_source": "offline_sample",
             "poverty_rate": 0.289,
             "no_vehicle_rate": 0.258,
         },
@@ -1310,9 +1131,9 @@ def _semantic_similarity_local(query_text: str, profile_text: str) -> float:
     """Compute a concept-aware semantic similarity score (0.0 to 1.0) for offline mode.
 
     Maps synonymous concepts (e.g., spinach <-> fresh greens / salad vegetables / produce,
-    cold storage <-> walk-in cooler / refrigeration / chilled holding / reefer) so the
-    local fallback mirrors BigQuery `gemini-embedding-2` behavior, including ranking
-    `Greenline Community Pantry` #1 semantically on spinach/greens!
+    cold storage <-> walk-in cooler / refrigeration / chilled holding / reefer) as a rough
+    stand-in for BigQuery `gemini-embedding-2`. Its scale differs from cosine similarity,
+    so offline rankings are for development only.
     """
     q = query_text.lower()
     p = profile_text.lower()
@@ -1338,17 +1159,6 @@ def _semantic_similarity_local(query_text: str, profile_text: str) -> float:
         if q_hits > 0 and p_hits > 0:
             score += min(0.22, 0.06 * min(q_hits, p_hits))
 
-    # Specific semantic boost for the planted teaching cases so they behave identically to BQ
-    if ("spinach" in q or "greens" in q or "salad" in q) and (
-        "fresh greens and salad vegetables more than anything else" in p
-    ):
-        score = 0.96  # Greenline Community Pantry ranks #1 semantically!
-    elif ("spinach" in q or "greens" in q or "produce" in q or "blueberries" in q) and (
-        "turn fresh fruit and vegetables within 48 hours" in p
-        or "perishables move through us in under two days" in p
-    ):
-        score = max(score, 0.89)  # Cedar Street & Maple Street tied high semantic score
-
     return min(0.99, round(score, 4))
 
 
@@ -1356,47 +1166,34 @@ def _fetch_candidates(
     posting_text: str,
     donor_lat: float,
     donor_lon: float,
-    top_k: int = 20,
-) -> tuple[list[dict[str, Any]], str]:
-    """Fetch semantic candidate recipients via BigQuery `VECTOR_SEARCH` or local fallback.
+    top_k: int = 40,
+) -> tuple[list[dict[str, Any]], str, str | None]:
+    """Fetch semantic candidate recipients via BigQuery `VECTOR_SEARCH` or the offline corpus.
+
+    `semantic_score` is the embeddings' cosine similarity, unmodified: the hard filters and
+    ranking downstream decide fit. Each candidate carries its nearest census tract's rates.
 
     Returns:
-        (candidates_list, source_label) where `source_label` is either
-        `"bigquery_vector_search"` or `"local_fallback_corpus"`.
+        (candidates, source, error). `source` is `"bigquery_vector_search"`,
+        `"local_fallback_corpus"` (no BigQuery configured, or `ALLOW_OFFLINE_FALLBACK=1`
+        after a failure), or `"bigquery_error"` with no candidates; `error` says what failed.
     """
     client = _get_bq_client()
+    error: str | None = None
     if client is not None:
         try:
             from google.cloud import bigquery  # type: ignore
 
-            project_id = client.project
-            # Primary query: BigQuery VECTOR_SEARCH over `recipient_embeddings` joined
-            # with `ST_DISTANCE` and nearest `tract_demographics`
+            ds = f"{client.project}.{DEFAULT_DATASET}"
             sql = f"""
             WITH vs AS (
               SELECT
-                base.recipient_id,
-                base.name,
-                base.street,
-                base.city,
-                base.state,
-                base.zip_code,
-                base.latitude,
-                base.longitude,
-                base.archetype,
-                base.archetype_label,
-                base.cold_storage,
-                base.frozen_storage,
-                base.loading_dock,
-                base.refrigerated_transport,
-                base.max_pallets,
-                base.pickup_window_hours,
-                base.weekly_households,
-                base.reported_income,
-                base.populations_served,
-                base.service_days,
-                base.profile_text,
-                base.profile_source,
+                base.recipient_id, base.name, base.street, base.city, base.state, base.zip_code,
+                base.latitude, base.longitude, base.archetype, base.archetype_label,
+                base.cold_storage, base.frozen_storage, base.loading_dock,
+                base.refrigerated_transport, base.max_pallets, base.pickup_window_hours,
+                base.weekly_households, base.reported_income, base.populations_served,
+                base.service_days, base.profile_text, base.profile_source,
                 distance AS vector_distance,
                 ROUND(
                   ST_DISTANCE(
@@ -1406,7 +1203,7 @@ def _fetch_candidates(
                   2
                 ) AS distance_km
               FROM VECTOR_SEARCH(
-                TABLE `{project_id}.{DEFAULT_DATASET}.recipient_embeddings`,
+                TABLE `{ds}.recipient_embeddings`,
                 'embedding',
                 (
                   SELECT AI.EMBED(
@@ -1415,68 +1212,27 @@ def _fetch_candidates(
                   ).result AS embedding
                 ),
                 top_k => @top_k,
+                distance_type => 'COSINE',
                 options => '{{"use_brute_force":true}}'
               )
-            ),
-            -- Also include planted teaching rows so decoys/contradictions in top space are inspected
-            planted_extra AS (
-              SELECT
-                r.recipient_id,
-                r.name,
-                r.street,
-                r.city,
-                r.state,
-                r.zip_code,
-                r.latitude,
-                r.longitude,
-                r.archetype,
-                r.archetype_label,
-                r.cold_storage,
-                r.frozen_storage,
-                r.loading_dock,
-                r.refrigerated_transport,
-                r.max_pallets,
-                r.pickup_window_hours,
-                r.weekly_households,
-                r.reported_income,
-                r.populations_served,
-                r.service_days,
-                r.profile_text,
-                r.profile_source,
-                0.25 AS vector_distance,
-                ROUND(
-                  ST_DISTANCE(
-                    ST_GEOGPOINT(r.longitude, r.latitude),
-                    ST_GEOGPOINT(@donor_lon, @donor_lat)
-                  ) / 1000.0,
-                  2
-                ) AS distance_km
-              FROM `{project_id}.{DEFAULT_DATASET}.recipients` r
-              WHERE r.profile_source = 'planted'
-                AND r.recipient_id NOT IN (SELECT recipient_id FROM vs)
-            ),
-            combined AS (
-              SELECT * FROM vs
-              UNION ALL
-              SELECT * FROM planted_extra
             )
             SELECT
-              c.*,
+              vs.*,
               t.geo_id AS tract_geo_id,
               t.poverty_rate,
               t.no_vehicle_rate,
               t.assistance_rate
-            FROM combined c
-            LEFT JOIN `{project_id}.{DEFAULT_DATASET}.tract_demographics` t
-              ON TRUE
+            FROM vs
+            LEFT JOIN `{ds}.tract_demographics` t
+              ON t.tract_lat IS NOT NULL AND t.tract_lon IS NOT NULL
             QUALIFY ROW_NUMBER() OVER (
-              PARTITION BY c.recipient_id
+              PARTITION BY vs.recipient_id
               ORDER BY ST_DISTANCE(
-                ST_GEOGPOINT(c.longitude, c.latitude),
+                ST_GEOGPOINT(vs.longitude, vs.latitude),
                 ST_GEOGPOINT(t.tract_lon, t.tract_lat)
               ) ASC
             ) = 1
-            ORDER BY c.vector_distance ASC
+            ORDER BY vs.vector_distance ASC
             """
             job_config = bigquery.QueryJobConfig(
                 query_parameters=[
@@ -1486,66 +1242,21 @@ def _fetch_candidates(
                     bigquery.ScalarQueryParameter("top_k", "INT64", int(top_k)),
                 ]
             )
-            rows = [dict(r) for r in client.query(sql, job_config=job_config).result(timeout=12)]
-            if rows:
-                planted_enrichments = {
-                    "Greenline Community Pantry": {
-                        "street": "410 S Halsted St",
-                        "zip_code": "60607",
-                        "pickup_window_hours": 12,
-                        "poverty_rate": 0.291,
-                        "no_vehicle_rate": 0.240,
-                    },
-                    "Harborview Neighbors Trust": {
-                        "street": "900 W Cermak Rd",
-                        "zip_code": "60608",
-                        "pickup_window_hours": 8,
-                        "poverty_rate": 0.220,
-                        "no_vehicle_rate": 0.185,
-                    },
-                    "Cedar Street Produce Alliance": {
-                        "street": "1420 W Madison St",
-                        "zip_code": "60607",
-                        "pickup_window_hours": 4,
-                        "refrigerated_transport": True,
-                        "poverty_rate": 0.348,
-                        "no_vehicle_rate": 0.312,
-                    },
-                    "Maple Street Produce Alliance": {
-                        "street": "2150 S Canalport Ave",
-                        "zip_code": "60608",
-                        "pickup_window_hours": 4,
-                        "refrigerated_transport": True,
-                        "poverty_rate": 0.142,
-                        "no_vehicle_rate": 0.128,
-                    },
-                    "Ridgeway Avenue Food Ministry": {
-                        "street": "1620 S Ridgeway Ave",
-                        "zip_code": "60623",
-                        "pickup_window_hours": 6,
-                        "refrigerated_transport": False,
-                        "poverty_rate": 0.295,
-                        "no_vehicle_rate": 0.254,
-                    },
-                }
-                for r in rows:
-                    org_name = str(r.get("name") or "").strip()
-                    enrich = planted_enrichments.get(org_name, {})
-                    for k, v in enrich.items():
-                        if r.get(k) is None or k in ("pickup_window_hours", "refrigerated_transport", "poverty_rate", "no_vehicle_rate"):
-                            r[k] = v
-                    dist = float(r.get("vector_distance") or 0.2)
-                    base_sem = round(max(0.0, 1.0 - dist), 4)
-                    local_sem = _semantic_similarity_local(posting_text, r.get("profile_text", ""))
-                    r["semantic_score"] = max(base_sem, local_sem)
-                    r["vector_distance"] = round(1.0 - r["semantic_score"], 4)
-
-                rows.sort(key=lambda x: (-x["semantic_score"], float(x.get("distance_km") or 99)))
-                for idx, r in enumerate(rows, start=1):
-                    r["semantic_rank"] = idx
-                return rows, "bigquery_vector_search"
-        except Exception:
-            pass
+            rows = [
+                dict(r)
+                for r in client.query(sql, job_config=job_config).result(timeout=BQ_TIMEOUT_S)
+            ]
+            for idx, r in enumerate(rows, start=1):
+                r["semantic_score"] = round(1.0 - float(r["vector_distance"]), 4)
+                r["semantic_rank"] = idx
+            return rows, "bigquery_vector_search", None
+        except Exception as exc:
+            logger.exception("BigQuery VECTOR_SEARCH failed")
+            error = f"BigQuery vector search failed: {exc}"
+            # The offline corpus holds sample organizations; never hand them to a live
+            # coordinator unless someone explicitly opted in.
+            if not _env_flag("ALLOW_OFFLINE_FALLBACK"):
+                return [], "bigquery_error", error
 
     # Local fallback corpus
     corpus = _build_local_fallback_corpus()
@@ -1563,35 +1274,48 @@ def _fetch_candidates(
     for idx, r in enumerate(corpus, start=1):
         r["semantic_rank"] = idx
 
-    return corpus[:top_k], "local_fallback_corpus"
+    return corpus[:top_k], "local_fallback_corpus", error
 
 
 # ---------------------------------------------------------------------------
 # Internal Helpers: Hard Constraint Filters & Contradiction Detector
 # ---------------------------------------------------------------------------
-def _detect_profile_contradiction(candidate: dict[str, Any]) -> str | None:
-    """Detect contradictions between `profile_text` and structured capability columns.
+# (what a profile claims, what the same profile says that rules the claim out)
+_SELF_CONTRADICTIONS: list[tuple[str, str]] = [
+    (r"walk-in freezer|freezer space|deep freez|pallets of frozen", r"no freezer"),
+    (r"walk-in|cold chain|refrigerated storage|reach-in", r"no refrigeration|no fridge|no cold storage"),
+    (r"full pallets|palletized|pallet loads", r"single shelf|shared cupboard"),
+]
 
-    Catches both the planted `Harborview Neighbors Trust` trap ("We operate a large
-    walk-in freezer... Storage is a single shelf in a shared cupboard and we have no
-    freezer at present") and the general Section 13 validation patterns.
+
+def _sentence_matching(text: str, pattern: str) -> str | None:
+    for sentence in re.split(r"(?<=[.!?])\s+", text):
+        if re.search(pattern, sentence.lower()):
+            return sentence.strip()
+    return None
+
+
+def _detect_profile_contradiction(candidate: dict[str, Any]) -> str | None:
+    """Detect contradictions within `profile_text` or between it and the capability columns.
+
+    Catches the planted `Harborview Neighbors Trust` trap ("We operate a large walk-in
+    freezer..." / "...we have no freezer at present") by what the text says, not by name,
+    plus the general Section 13 validation patterns.
     """
-    name = str(candidate.get("name") or "")
-    text_lower = str(candidate.get("profile_text") or "").lower()
+    text = str(candidate.get("profile_text") or "")
+    text_lower = text.lower()
     cold_storage = str(candidate.get("cold_storage") or "none").lower()
     frozen_storage = bool(candidate.get("frozen_storage"))
 
-    # 1. Explicit self-contradiction inside the profile text itself (Harborview Neighbors Trust)
-    if (
-        "walk-in freezer" in text_lower
-        and ("no freezer" in text_lower or "single shelf in a shared cupboard" in text_lower)
-    ) or name.lower() == "harborview neighbors trust":
-        return (
-            "Profile contradicts itself and its storage flags: claims 'large walk-in freezer "
-            "and can accept full pallets of frozen protein' in sentence 1, but states "
-            "'Storage is a single shelf in a shared cupboard and we have no freezer at present' "
-            "in sentence 2. Blocked for data integrity validation."
-        )
+    # 1. The profile text contradicts itself
+    for claim_re, denial_re in _SELF_CONTRADICTIONS:
+        claim = _sentence_matching(text, claim_re)
+        denial = _sentence_matching(text, denial_re)
+        if claim and denial and claim != denial:
+            return (
+                f"Profile contradicts itself: '{claim}' vs. '{denial}'. "
+                "Blocked for data integrity validation until the pantry confirms its storage."
+            )
 
     # 2. Structured column vs. text mismatch (Notebook Section 13 check)
     if cold_storage == "none" and re.search(
@@ -1600,7 +1324,7 @@ def _detect_profile_contradiction(candidate: dict[str, Any]) -> str | None:
     ) and "no refrigeration" not in text_lower and "no cold storage" not in text_lower:
         return (
             f"Contradiction detected: cold_storage column is 'none', but profile_text "
-            f"claims active refrigeration ('{candidate.get('profile_text', '')[:80]}...')."
+            f"claims active refrigeration ('{text[:80]}...')."
         )
 
     if cold_storage == "walk-in" and re.search(
@@ -1621,19 +1345,13 @@ def _detect_profile_contradiction(candidate: dict[str, Any]) -> str | None:
     return None
 
 
-def _normalize_pct(val: Any, default_pct: float = 18.0) -> float:
-    """Normalize a census rate (either 0..1 fraction or 0..100 percentage) to 0..100%."""
-    if val is None:
-        return default_pct
+def _rate_to_pct(val: Any) -> float | None:
+    """Census rates are stored as fractions (0.145); return a percentage, or None if missing."""
     try:
         f = float(val)
-        if math.isnan(f):
-            return default_pct
-        if f <= 1.0:
-            return round(f * 100.0, 1)
-        return round(f, 1)
-    except Exception:
-        return default_pct
+    except (TypeError, ValueError):
+        return None
+    return None if math.isnan(f) else round(f * 100.0, 1)
 
 
 def _parse_declined_set(declined_recipient_ids: Any) -> tuple[set[int], set[str]]:
@@ -1662,6 +1380,60 @@ def _parse_declined_set(declined_recipient_ids: Any) -> tuple[set[int], set[str]
     return ids, names
 
 
+# Two candidates with equal values here are operationally interchangeable for an offer
+# (the notebook's "genuine ties"); what separates them is need, distance, and wording.
+_CAPABILITY_FIELDS = (
+    "cold_storage",
+    "frozen_storage",
+    "loading_dock",
+    "refrigerated_transport",
+    "max_pallets",
+    "pickup_window_hours",
+)
+_SCORE_PART_LABELS = {
+    "semantic": "a closer match to the offer's wording",
+    "equity": "higher neighborhood need",
+    "proximity": "shorter distance",
+    "logistics": "logistics fit",
+}
+
+
+def _fmt_need(c: dict[str, Any]) -> str:
+    pov = "unknown" if c["poverty_pct"] is None else f"{c['poverty_pct']}%"
+    nov = "unknown" if c["no_vehicle_pct"] is None else f"{c['no_vehicle_pct']}%"
+    return f"{pov} poverty, {nov} no-vehicle households"
+
+
+def _explain_operational_ties(ranked: list[dict[str, Any]], top_n: int) -> dict[str, str]:
+    """Explain each pair of operationally identical candidates near the top of the ranking.
+
+    Returns {recipient name: note} for both members of every such pair.
+    """
+    window = ranked[: top_n + 2]
+    groups: dict[tuple[Any, ...], list[dict[str, Any]]] = {}
+    for c in window:
+        groups.setdefault(tuple(c.get(f) for f in _CAPABILITY_FIELDS), []).append(c)
+
+    notes: dict[str, str] = {}
+    for members in groups.values():
+        if len(members) < 2 or not any(m in ranked[:top_n] for m in members):
+            continue
+        a, b = members[0], members[1]
+        gaps = {k: a["score_parts"][k] - b["score_parts"][k] for k in a["score_parts"]}
+        reason = _SCORE_PART_LABELS[max(gaps, key=gaps.get)]
+        note = (
+            f"TIE-BREAKER NOTE: {a['name']} and {b['name']} are operationally identical "
+            f"({a.get('cold_storage')} cold storage, {a.get('max_pallets')} pallets, "
+            f"{'own refrigerated van' if a.get('refrigerated_transport') else 'no refrigerated van'}, "
+            f"{'loading dock' if a.get('loading_dock') else 'no loading dock'}, "
+            f"{a.get('pickup_window_hours')}h pickup). {a['name']} ranks ahead mainly on {reason}: "
+            f"{_fmt_need(a)} vs. {_fmt_need(b)}; {a.get('distance_km')} km vs. {b.get('distance_km')} km."
+        )
+        notes[a["name"]] = note
+        notes[b["name"]] = note
+    return notes
+
+
 # ---------------------------------------------------------------------------
 # Milestone 3B: Smart Match, Filter & Tie-Breaker Tool
 # ---------------------------------------------------------------------------
@@ -1683,19 +1455,18 @@ def find_and_rank_recipients(
 
     Executes the full Challenge 2 brokering pipeline:
     1. Resolves the shelf-life clock via `check_shelf_life_clock` (`effective_window_hours`).
-    2. Retrieves top semantic candidates via BigQuery `VECTOR_SEARCH` (or local fallback).
-    3. Applies Hard Filter 1 (Cold Chain & Storage compatibility) — catching the planted
-       `Greenline Community Pantry` decoy (`cold_storage='none'`) and recording it in
-       `rejected_decoys`.
-    4. Applies Hard Filter 2 (Contradiction Check) — catching `Harborview Neighbors Trust`
-       where `profile_text` contradicts `cold_storage`/`frozen_storage`.
-    5. Applies Hard Filter 3 (Clock & Volume capacity) — verifying `pickup_window_hours`
-       against `effective_window_hours` and computing a multi-pantry load split when a
-       bulk farm offer exceeds any single pantry's `max_pallets`.
-    6. Applies a Defensible Tie-Breaker combining semantic similarity, proximity, and
-       ACS census tract need (`poverty_rate` & `pct_no_vehicle`) so genuine ties like
-       `Cedar Street Produce Alliance` vs. `Maple Street Produce Alliance` are resolved
-       on neighborhood food equity.
+    2. Retrieves semantic candidates via BigQuery `VECTOR_SEARCH` (cosine similarity on
+       `profile_text` embeddings).
+    3. Hard filters, each recorded in `rejected_decoys` with its reason: profile
+       contradictions (e.g. `Harborview Neighbors Trust`), frozen/cold/clinical storage
+       (e.g. the `Greenline Community Pantry` decoy with `cold_storage='none'`), household
+       fridges offered pallet-scale perishables, the donor's pickup-van requirement, pickup
+       windows longer than the effective clock, and pallet loads for hand-carry-only sites
+       (`max_pallets=0`, which can still take loads of up to one pallet as boxes).
+    4. Ranks survivors on semantic similarity, census-tract need (`poverty_rate` &
+       `pct_no_vehicle`), logistics, and proximity, and explains any operationally identical
+       pair (e.g. `Cedar Street` vs. `Maple Street`) in `tie_breaker_explanation`.
+    5. Proposes a multi-pantry `split_plan` for bulk loads or when #1 can't take it all.
 
     Args:
         posting_text: Raw donor offer text (e.g., "10 crates of spinach, harvested
@@ -1706,16 +1477,18 @@ def find_and_rank_recipients(
         requires_frozen: Override whether freezer storage is required (`None` = auto).
         donor_lat: Donor latitude (defaults to metro center).
         donor_lon: Donor longitude (defaults to metro center).
-        declined_recipient_ids: Optional comma-separated recipient IDs or names that
-            declined the pickup (for the "They said no. Who's next?" workflow).
+        declined_recipient_ids: Optional comma-separated recipient IDs or exact organization
+            names that declined the pickup (for the "They said no. Who's next?" workflow).
         top_n: Number of ranked viable matches to return (defaults to 3: Primary + 2 Backups).
         pallets_offered: Optional alias for `pallets_estimate` (used by app/main.py).
         requires_pickup_van: Optional flag if recipient must have their own vehicle.
-        declined_recipient_names: Optional list of declined organization names (used by app/main.py).
+        declined_recipient_names: Optional list of exact declined organization names.
 
     Returns:
         Dictionary adhering to the Shared JSON Contract (`posting_summary`, `matches`,
-        `rejected_decoys`, plus `split_plan` and `search_backend`).
+        `rejected_decoys`), plus `declined_recipients`, `split_plan`,
+        `unallocated_pallets`, `tie_breaker_explanation`, `search_backend`, and
+        `search_error` (set when the live search failed; `matches` is then empty).
     """
     eff_pallets = pallets_estimate if pallets_estimate > 0 else pallets_offered
     attrs = _infer_posting_attributes(
@@ -1734,11 +1507,14 @@ def find_and_rank_recipients(
             if attrs["requires_frozen"]
             else ("refrigerated" if attrs["requires_cold_storage"] else "pantry")
         ),
+        requires_refrigeration=attrs["requires_cold_storage"],
     )
 
     effective_window = float(clock["effective_window_hours"])
     pallets_needed = int(attrs["pallets_estimate"])
-    need_cold = bool(attrs["requires_cold_storage"])
+    # The clock can upgrade a posting to cold storage when FoodKeeper says room-temperature
+    # storage is not recommended for the product.
+    need_cold = bool(clock["requires_cold_storage"])
     need_frozen = bool(attrs["requires_frozen"])
     need_medical = bool(attrs["requires_medical_cold"])
 
@@ -1748,11 +1524,10 @@ def find_and_rank_recipients(
         declined_ids |= extra_ids
         declined_names |= extra_names
 
-    candidates, search_backend = _fetch_candidates(
+    candidates, search_backend, search_error = _fetch_candidates(
         posting_text=posting_text,
         donor_lat=donor_lat,
         donor_lon=donor_lon,
-        top_k=25,
     )
 
     rejected_decoys: list[dict[str, Any]] = []
@@ -1760,18 +1535,24 @@ def find_and_rank_recipients(
     valid_candidates: list[dict[str, Any]] = []
 
     for cand in candidates:
-        rid = int(cand.get("recipient_id") or 0)
+        rid = cand.get("recipient_id")
+        rid = int(rid) if rid is not None else None
         name = str(cand.get("name") or "Unknown Organization")
-        sem_rank = int(cand.get("semantic_rank") or 99)
+        sem_rank = cand.get("semantic_rank")
         cold = str(cand.get("cold_storage") or "none").lower()
         frozen = bool(cand.get("frozen_storage"))
         max_pallets = int(cand.get("max_pallets") or 0)
-        pickup_win = int(cand.get("pickup_window_hours") or 12)
+        pickup_win = cand.get("pickup_window_hours")
         has_reefer = bool(cand.get("refrigerated_transport"))
         profile_text = str(cand.get("profile_text") or "")
 
-        # 0. Check if explicitly declined by coordinator ("They said no")
-        if rid in declined_ids or any(dn in name.lower() for dn in declined_names):
+        def reject(reason: str) -> None:
+            rejected_decoys.append(
+                {"recipient_id": rid, "name": name, "semantic_rank": sem_rank, "rejection_reason": reason}
+            )
+
+        # 0. Explicitly declined by the coordinator ("They said no"): exact ID or name only
+        if (rid is not None and rid in declined_ids) or name.strip().lower() in declined_names:
             declined_log.append(
                 {
                     "recipient_id": rid,
@@ -1782,254 +1563,205 @@ def find_and_rank_recipients(
             )
             continue
 
-        # 1. Hard Filter 2: Contradiction Check (Harborview Neighbors Trust)
+        # 1. Contradiction Check (e.g. Harborview Neighbors Trust)
         contradiction_reason = _detect_profile_contradiction(cand)
         if contradiction_reason is not None:
-            rejected_decoys.append(
-                {
-                    "name": name,
-                    "semantic_rank": sem_rank,
-                    "rejection_reason": contradiction_reason,
-                }
-            )
+            reject(contradiction_reason)
             continue
 
-        # 2. Hard Filter 1: Cold Chain & Storage Compatibility (Greenline Community Pantry)
+        # 2. Cold Chain & Storage Compatibility (e.g. Greenline Community Pantry)
         if need_frozen and not frozen:
-            rejected_decoys.append(
-                {
-                    "name": name,
-                    "semantic_rank": sem_rank,
-                    "rejection_reason": (
-                        f"Matched #{sem_rank} on meaning, but BLOCKED by constraint filter: "
-                        f"frozen_storage=False (cannot store frozen goods; cold_storage='{cold}')."
-                    ),
-                }
+            reject(
+                f"Matched #{sem_rank} on meaning, but BLOCKED by constraint filter: "
+                f"frozen_storage=False (cannot store frozen goods; cold_storage='{cold}')."
             )
             continue
 
         if need_cold and cold == "none":
             snippet = profile_text.split(".")[0].strip()
-            rejected_decoys.append(
-                {
-                    "name": name,
-                    "semantic_rank": sem_rank,
-                    "rejection_reason": (
-                        f"Matched #{sem_rank} on meaning ('{snippet}'), but BLOCKED by "
-                        f"constraint filter: cold_storage='none' (no refrigeration on site)."
-                    ),
-                }
+            reject(
+                f"Matched #{sem_rank} on meaning ('{snippet}'), but BLOCKED by "
+                f"constraint filter: cold_storage='none' (no refrigeration on site)."
             )
             continue
 
         if need_medical and cold not in ("medical", "commercial", "walk-in"):
-            rejected_decoys.append(
-                {
-                    "name": name,
-                    "semantic_rank": sem_rank,
-                    "rejection_reason": (
-                        f"Matched #{sem_rank} on meaning, but BLOCKED by clinical cold-chain "
-                        f"filter: cold_storage='{cold}' is insufficient for temperature-sensitive "
-                        "clinic supplements."
-                    ),
-                }
+            reject(
+                f"Matched #{sem_rank} on meaning, but BLOCKED by clinical cold-chain "
+                f"filter: cold_storage='{cold}' is insufficient for temperature-sensitive "
+                "medical goods."
             )
             continue
 
         # Domestic fridge cannot take pallet-scale perishable loads (> 1 pallet)
         if need_cold and cold == "domestic" and pallets_needed > 1:
-            rejected_decoys.append(
-                {
-                    "name": name,
-                    "semantic_rank": sem_rank,
-                    "rejection_reason": (
-                        f"Matched #{sem_rank} on meaning, but BLOCKED by capacity filter: "
-                        f"only has a domestic household fridge (cold_storage='domestic') "
-                        f"and cannot hold {pallets_needed} pallets of perishables."
-                    ),
-                }
+            reject(
+                f"Matched #{sem_rank} on meaning, but BLOCKED by capacity filter: "
+                f"only has a domestic household fridge (cold_storage='domestic') "
+                f"and cannot hold {pallets_needed} pallets of perishables."
             )
             continue
 
-        # 3. Hard Filter 3: Logistics & Transport (requires_pickup_van)
+        # 3. Logistics & Transport (requires_pickup_van)
         if requires_pickup_van and not has_reefer:
-            rejected_decoys.append(
-                {
-                    "name": name,
-                    "semantic_rank": sem_rank,
-                    "rejection_reason": (
-                        f"Matched #{sem_rank} on meaning, but BLOCKED by logistics filter: "
-                        f"donor requires recipient pickup van (requires_pickup_van=True), but recipient "
-                        f"lacks refrigerated transport (refrigerated_transport=False)."
-                    ),
-                }
+            reject(
+                f"Matched #{sem_rank} on meaning, but BLOCKED by logistics filter: "
+                f"donor requires recipient pickup van (requires_pickup_van=True), but recipient "
+                f"lacks refrigerated transport (refrigerated_transport=False)."
             )
             continue
 
-        # 4. Hard Filter 4: Clock & Pickup Window Feasibility
-        # If the recipient has their own refrigerated van, their pickup_window_hours is their
-        # collection time; if pickup_window_hours > effective_window, check if a volunteer
-        # driver can deliver within 2h while their site is open, otherwise reject.
-        effective_pickup_hours = pickup_win
+        # 4. Clock: the recipient's own stated pickup time must fit the effective window
+        if pickup_win is None:
+            reject(
+                f"Matched #{sem_rank} on meaning, but BLOCKED by clock filter: "
+                f"pickup_window_hours is unknown, so collection within {effective_window:g}h "
+                "can't be confirmed."
+            )
+            continue
+        pickup_win = int(pickup_win)
         if pickup_win > effective_window:
-            if has_reefer and pickup_win <= effective_window + 2:
-                effective_pickup_hours = int(max(1.0, effective_window - 1.0))
-            else:
-                rejected_decoys.append(
-                    {
-                        "name": name,
-                        "semantic_rank": sem_rank,
-                        "rejection_reason": (
-                            f"Matched #{sem_rank} on meaning, but BLOCKED by clock filter: "
-                            f"pickup_window_hours={pickup_win}h exceeds the {effective_window:g}h "
-                            "effective spoilage/donor deadline."
-                        ),
-                    }
-                )
-                continue
-
-        if max_pallets <= 0:
-            rejected_decoys.append(
-                {
-                    "name": name,
-                    "semantic_rank": sem_rank,
-                    "rejection_reason": (
-                        f"Matched #{sem_rank} on meaning, but BLOCKED by volume filter: "
-                        "max_pallets=0 (hand-carry only, cannot receive crate/pallet loads)."
-                    ),
-                }
+            reject(
+                f"Matched #{sem_rank} on meaning, but BLOCKED by clock filter: "
+                f"pickup_window_hours={pickup_win}h exceeds the {effective_window:g}h "
+                "effective spoilage/donor deadline."
             )
             continue
 
-        # Candidate survived all hard filters! Compute composite equity + logistics rank score
-        poverty_pct = _normalize_pct(cand.get("poverty_rate"), default_pct=20.0)
-        no_vehicle_pct = _normalize_pct(
-            cand.get("no_vehicle_rate")
-            if cand.get("no_vehicle_rate") is not None
-            else cand.get("pct_no_vehicle"),
-            default_pct=18.0,
-        )
-        dist_km = float(cand.get("distance_km") or 3.5)
-        sem_score = float(cand.get("semantic_score") or 0.75)
-        margin_hours = round(max(0.0, effective_window - effective_pickup_hours), 1)
+        # 5. Volume: max_pallets=0 means hand-carried boxes, so up to one pallet's worth
+        if max_pallets <= 0 and pallets_needed > 1:
+            reject(
+                f"Matched #{sem_rank} on meaning, but BLOCKED by volume filter: "
+                f"max_pallets=0 (takes hand-carried boxes, not pallets), and this load is "
+                f"~{pallets_needed} pallets."
+            )
+            continue
+
+        # Survived all hard filters: composite equity + logistics rank score
+        poverty_pct = _rate_to_pct(cand.get("poverty_rate"))
+        no_vehicle_pct = _rate_to_pct(cand.get("no_vehicle_rate"))
+        known_need = [v for v in (poverty_pct, no_vehicle_pct) if v is not None]
+        dist_km = cand.get("distance_km")
+        fits_whole_load = max_pallets >= pallets_needed or (max_pallets == 0 and pallets_needed <= 1)
 
         # Composite score:
         # - 40% Semantic relevance
-        # - 35% Neighborhood Equity Need (poverty_rate + pct_no_vehicle)
-        # - 15% Logistics readiness (refrigerated_transport, loading_dock, capacity fit)
+        # - 35% Neighborhood Equity Need (poverty_rate + pct_no_vehicle); missing tract
+        #       data scores neutral (0.5) rather than as invented need
+        # - 15% Logistics readiness (refrigerated_transport, storage class, capacity fit)
         # - 10% Proximity (closer = faster cold-chain turn)
-        equity_norm = min(1.0, ((poverty_pct / 40.0) * 0.5 + (no_vehicle_pct / 40.0) * 0.5))
-        logistics_norm = (
-            (0.45 if has_reefer else 0.0)
-            + (0.30 if cold in ("walk-in", "commercial", "medical") else 0.15)
-            + (0.25 if max_pallets >= pallets_needed else 0.10)
-        )
-        proximity_norm = max(0.0, 1.0 - (dist_km / 25.0))
-
-        composite_score = round(
-            0.40 * sem_score
-            + 0.35 * equity_norm
-            + 0.15 * logistics_norm
-            + 0.10 * proximity_norm,
-            4,
-        )
+        score_parts = {
+            "semantic": 0.40 * float(cand.get("semantic_score") or 0.0),
+            "equity": 0.35 * (
+                min(1.0, sum(known_need) / (40.0 * len(known_need))) if known_need else 0.5
+            ),
+            "logistics": 0.15 * (
+                (0.45 if has_reefer else 0.0)
+                + (0.30 if cold in ("walk-in", "commercial", "medical") else 0.15)
+                + (0.25 if fits_whole_load else 0.10)
+            ),
+            "proximity": 0.10 * (
+                max(0.0, 1.0 - float(dist_km) / 25.0) if dist_km is not None else 0.5
+            ),
+        }
+        margin_hours = round(effective_window - pickup_win, 1)
 
         cand_enriched = dict(cand)
+        cand_enriched["pickup_window_hours"] = pickup_win
         cand_enriched["poverty_pct"] = poverty_pct
         cand_enriched["no_vehicle_pct"] = no_vehicle_pct
-        cand_enriched["effective_pickup_hours"] = effective_pickup_hours
-        cand_enriched["margin_hours"] = (
-            int(margin_hours) if margin_hours.is_integer() else margin_hours
-        )
-        cand_enriched["composite_score"] = composite_score
+        cand_enriched["margin_hours"] = int(margin_hours) if margin_hours.is_integer() else margin_hours
+        cand_enriched["score_parts"] = score_parts
+        cand_enriched["composite_score"] = round(sum(score_parts.values()), 4)
         cand_enriched["pallets_assigned"] = min(max_pallets, pallets_needed)
         valid_candidates.append(cand_enriched)
 
-    # Sort surviving candidates by composite_score DESC, then poverty_pct DESC, then distance_km ASC
+    # Sort surviving candidates by composite_score DESC, then poverty DESC, then distance ASC
     valid_candidates.sort(
-        key=lambda c: (-c["composite_score"], -c["poverty_pct"], c["distance_km"])
+        key=lambda c: (
+            -c["composite_score"],
+            -(c["poverty_pct"] or 0.0),
+            float(c.get("distance_km") or 0.0),
+        )
     )
+    tie_notes = _explain_operational_ties(valid_candidates, max(1, top_n))
 
-    # Detect genuine ties (specifically Cedar Street vs. Maple Street or near-identical capability)
-    names_in_valid = {c["name"]: c for c in valid_candidates}
-    cedar_vs_maple_note: str | None = None
-    if (
-        "Cedar Street Produce Alliance" in names_in_valid
-        and "Maple Street Produce Alliance" in names_in_valid
-    ):
-        cedar = names_in_valid["Cedar Street Produce Alliance"]
-        maple = names_in_valid["Maple Street Produce Alliance"]
-        winner, runner_up = (
-            (cedar, maple)
-            if cedar["composite_score"] >= maple["composite_score"]
-            else (maple, cedar)
-        )
-        cedar_vs_maple_note = (
-            f"TIE-BREAKER NOTE: {winner['name']} and {runner_up['name']} are operationally "
-            f"identical (both have walk-in coolers, reefer vans, loading docks, 10-pallet capacity, "
-            f"and serve ~600 households/wk). Ranked {winner['name']} ahead based on higher "
-            f"neighborhood food-equity need ({winner['poverty_pct']}% poverty & "
-            f"{winner['no_vehicle_pct']}% no-vehicle households vs. {runner_up['poverty_pct']}% "
-            f"poverty & {runner_up['no_vehicle_pct']}% no-vehicle) and shorter distance "
-            f"({winner['distance_km']} km vs. {runner_up['distance_km']} km)."
-        )
-        others = [c for c in valid_candidates if c["name"] not in (winner["name"], runner_up["name"])]
-        valid_candidates = [winner, runner_up] + others
-    elif "Maple Street Produce Alliance" in names_in_valid:
-        maple = names_in_valid["Maple Street Produce Alliance"]
-        others = [c for c in valid_candidates if c["name"] != maple["name"]]
-        valid_candidates = [maple] + others
-
-    # Build top_n formatted matches adhering strictly to the Shared JSON Contract
+    # Build top_n formatted matches adhering to the Shared JSON Contract
     matches_out: list[dict[str, Any]] = []
     for idx, c in enumerate(valid_candidates[: max(1, top_n)], start=1):
+        street = str(c.get("street") or "").strip()
+        city = str(c.get("city") or "").strip().upper()
+        zip_code = str(c.get("zip_code") or "").strip()
+        is_planted = c.get("profile_source") == "planted"
+        address = f"{street}, {city} {zip_code}".strip() if street else None
+        address_note = None
+        if address is None:
+            address_note = (
+                "No street address: planted teaching case, not a real organization."
+                if is_planted
+                else "No street address on file; confirm with the organization before dispatch."
+            )
+
+        pallets_assigned = c["pallets_assigned"]
+        load_phrase = (
+            f"~{pallets_assigned} pallet(s)" if pallets_assigned > 0 else "a boxed, hand-carry load (no pallets)"
+        )
         transport_phrase = (
-            f"own refrigerated van for pickup within {c['effective_pickup_hours']} hours"
+            f"own refrigerated van for pickup within {c['pickup_window_hours']} hours"
             if c.get("refrigerated_transport")
-            else f"volunteer driver dispatch needed within {c['effective_pickup_hours']} hours"
+            else f"volunteer driver dispatch needed within {c['pickup_window_hours']} hours"
         )
         storage_phrase = (
             f"{c.get('cold_storage')} cold storage"
             if c.get("cold_storage") not in ("none", None)
             else "dry storage"
         )
-        why_them = (
-            f"Has {storage_phrase} (up to {c.get('max_pallets')} pallets), {transport_phrase} "
-            f"({c['margin_hours']}h safety margin before {effective_window:g}h cutoff), "
-            f"and serves a high-need tract ({c['poverty_pct']}% poverty, "
-            f"{c['no_vehicle_pct']}% no-vehicle). Profile match: \"{c.get('profile_text', '')[:120]}...\""
+        dock_phrase = (
+            "; no loading dock, so pallets need a liftgate truck or pallet jack"
+            if pallets_assigned > 0 and not c.get("loading_dock")
+            else ""
         )
-        if (
-            cedar_vs_maple_note
-            and c["name"] in ("Cedar Street Produce Alliance", "Maple Street Produce Alliance")
-        ):
-            why_them = f"{why_them} | {cedar_vs_maple_note}"
+        distance_phrase = f"{c['distance_km']} km away" if c.get("distance_km") is not None else "distance unknown"
+        why_them = (
+            f"Has {storage_phrase} (up to {int(c.get('max_pallets') or 0)} pallets{dock_phrase}), "
+            f"{transport_phrase} ({c['margin_hours']}h safety margin before {effective_window:g}h cutoff), "
+            f"tract need: {_fmt_need(c)}. Profile match: \"{c.get('profile_text', '')[:120]}...\""
+        )
+        if c["name"] in tie_notes:
+            why_them = f"{why_them} | {tie_notes[c['name']]}"
 
         draft_msg = (
-            f"URGENT PICKUP AVAILABLE: {attrs['food_item']} (~{c['pallets_assigned']} pallet(s)) "
-            f"available now at {c['distance_km']} km away. Must be collected within "
-            f"{effective_window:g}h (fits your {c['effective_pickup_hours']}h "
-            f"{'reefer van' if c.get('refrigerated_transport') else 'pickup'} window; "
-            f"{c['margin_hours']}h safety margin). Reply ACCEPT to claim or DECLINE to pass to backup."
+            f"URGENT PICKUP AVAILABLE: {attrs['food_item']} ({load_phrase}) available now, "
+            f"{distance_phrase}. Must be collected within {effective_window:g}h (your stated "
+            f"{'reefer van ' if c.get('refrigerated_transport') else ''}pickup time is "
+            f"{c['pickup_window_hours']}h; {c['margin_hours']}h safety margin). "
+            "Reply ACCEPT to claim or DECLINE to pass to backup."
         )
 
         matches_out.append(
             {
                 "rank": idx,
-                "recipient_id": int(c.get("recipient_id") or idx),
+                "recipient_id": int(c["recipient_id"]) if c.get("recipient_id") is not None else None,
                 "name": str(c.get("name")),
-                "street": str(c.get("street") or "METRO CENTER AVE"),
-                "city": str(c.get("city") or "CHICAGO").upper(),
-                "zip_code": str(c.get("zip_code") or "60607"),
-                "lat": round(float(c.get("latitude") or donor_lat), 4),
-                "lon": round(float(c.get("longitude") or donor_lon), 4),
-                "distance_km": float(c.get("distance_km") or 2.4),
+                "street": street,
+                "city": city,
+                "zip_code": zip_code,
+                "address": address,
+                "address_note": address_note,
+                "is_planted_teaching_case": is_planted,
+                "lat": round(float(c["latitude"]), 4) if c.get("latitude") is not None else None,
+                "lon": round(float(c["longitude"]), 4) if c.get("longitude") is not None else None,
+                "distance_km": float(c["distance_km"]) if c.get("distance_km") is not None else None,
                 "cold_storage": str(c.get("cold_storage") or "none"),
                 "frozen_storage": bool(c.get("frozen_storage")),
+                "loading_dock": bool(c.get("loading_dock")),
                 "refrigerated_transport": bool(c.get("refrigerated_transport")),
-                "max_pallets": int(c.get("max_pallets") or 1),
-                "pickup_window_hours": int(c["effective_pickup_hours"]),
+                "max_pallets": int(c.get("max_pallets") or 0),
+                "pallets_assigned": pallets_assigned,
+                "pickup_window_hours": c["pickup_window_hours"],
                 "margin_hours": c["margin_hours"],
+                "semantic_score": c.get("semantic_score"),
+                "composite_score": c["composite_score"],
                 "profile_text": str(c.get("profile_text") or ""),
                 "why_them": why_them,
                 "equity_context": {
@@ -2040,22 +1772,27 @@ def find_and_rank_recipients(
             }
         )
 
-    # Multi-Pantry Split Plan for large farm/bulk loads (when pallets_needed >= 4)
+    # Multi-Pantry Split Plan: spread bulk loads (>= 4 pallets), or cover what #1 can't take
     split_plan: list[dict[str, Any]] = []
-    if pallets_needed >= 4 and len(valid_candidates) >= 2:
+    unallocated_pallets = 0
+    top_capacity = matches_out[0]["max_pallets"] if matches_out else 0
+    if pallets_needed > 1 and (pallets_needed >= 4 or top_capacity < pallets_needed):
         remaining = pallets_needed
         for c in valid_candidates:
+            capacity = int(c.get("max_pallets") or 0)
             if remaining <= 0:
                 break
-            alloc = min(remaining, max(1, min(int(c.get("max_pallets") or 1), int(math.ceil(pallets_needed / 2)))))
+            if capacity <= 0:
+                continue
+            alloc = min(remaining, capacity, int(math.ceil(pallets_needed / 2)))
             remaining -= alloc
             split_plan.append(
                 {
-                    "recipient_id": int(c.get("recipient_id") or 0),
+                    "recipient_id": int(c["recipient_id"]) if c.get("recipient_id") is not None else None,
                     "name": str(c.get("name")),
                     "allocated_pallets": alloc,
-                    "max_pallets": int(c.get("max_pallets") or 1),
-                    "distance_km": float(c.get("distance_km") or 2.4),
+                    "max_pallets": capacity,
+                    "distance_km": c.get("distance_km"),
                     "draft_split_message": (
                         f"SPLIT LOAD DISPATCH ({alloc} of {pallets_needed} pallets): "
                         f"{attrs['food_item']} ready for collection ({effective_window:g}h window). "
@@ -2063,22 +1800,7 @@ def find_and_rank_recipients(
                     ),
                 }
             )
-
-    # Ensure `Greenline Community Pantry` is always surfaced in `rejected_decoys` for perishable greens
-    if need_cold and not any(
-        "greenline" in d["name"].lower() for d in rejected_decoys
-    ):
-        rejected_decoys.insert(
-            0,
-            {
-                "name": "Greenline Community Pantry",
-                "semantic_rank": 1,
-                "rejection_reason": (
-                    "Matched #1 on meaning ('wants fresh greens and salad vegetables'), "
-                    "but BLOCKED by constraint filter: cold_storage='none' (no refrigeration)."
-                ),
-            },
-        )
+        unallocated_pallets = remaining
 
     return {
         "posting_summary": {
@@ -2095,8 +1817,10 @@ def find_and_rank_recipients(
         "rejected_decoys": rejected_decoys,
         "declined_recipients": declined_log,
         "split_plan": split_plan,
-        "tie_breaker_explanation": cedar_vs_maple_note,
+        "unallocated_pallets": unallocated_pallets,
+        "tie_breaker_explanation": " ".join(dict.fromkeys(tie_notes.values())) or None,
         "search_backend": search_backend,
+        "search_error": search_error,
     }
 
 
@@ -2104,28 +1828,40 @@ def find_and_rank_recipients(
 # Milestone 3C: Cascading Uber Dispatch Tool ("They Said No. Who's Next?")
 # ---------------------------------------------------------------------------
 def dispatch_pickup_and_fallback(
-    posting_id_or_text: str = "1",
+    posting_id_or_text: str = "",
     declined_recipient_ids: str = "",
     posting_text: str = "",
     declined_recipient_names: list[str] | None = None,
     donor_deadline_hours: float = 0.0,
+    pallets_estimate: int = 0,
+    requires_cold_storage: bool | None = None,
+    requires_frozen: bool | None = None,
+    requires_pickup_van: bool = False,
+    donor_lat: float = DEFAULT_DONOR_LAT,
+    donor_lon: float = DEFAULT_DONOR_LON,
 ) -> dict[str, Any]:
     """Dispatch a pickup alert and automatically cascade to Backup #2/#3 if #1 declines.
 
     Supports looking up any of the 10 canonical `a4i_food.surplus_postings` by numeric
     `posting_id` ("1" through "10") OR passing a free-text surplus posting directly.
-    When a coordinator says "They said no. Who's next?" or clicks the UI's
-    `[Decline Pickup -> Ping Backup #2]` button, pass the declined recipient ID(s) or
-    organization name(s) in `declined_recipient_ids` to promote the next qualified backup.
+    When a coordinator says "They said no. Who's next?", pass the same posting and the
+    same filter arguments used for the original match, plus every organization that has
+    declined so far, so the promoted backup is the one the coordinator was shown.
 
     Args:
         posting_id_or_text: Either a posting_id ("1".."10") from `a4i_food.surplus_postings`
-            or a free-text surplus description.
-        declined_recipient_ids: Comma-separated recipient IDs or organization names that
-            declined the offer (e.g., "14" or "WESTSIDE COMMUNITY KITCHEN").
+            or the free-text surplus description. Required (or pass `posting_text`).
+        declined_recipient_ids: Comma-separated recipient IDs or exact organization names
+            that declined the offer (e.g., "14" or "WESTSIDE COMMUNITY KITCHEN").
         posting_text: Optional alias for `posting_id_or_text`.
-        declined_recipient_names: Optional list of declined organization names.
-        donor_deadline_hours: Optional donor deadline override in hours.
+        declined_recipient_names: Optional list of exact declined organization names.
+        donor_deadline_hours: Donor deadline in hours (0 = posting's own / auto-infer).
+        pallets_estimate: Same as the original match (0 = auto-infer).
+        requires_cold_storage: Same as the original match (`None` = auto).
+        requires_frozen: Same as the original match (`None` = auto).
+        requires_pickup_van: Same as the original match.
+        donor_lat: Same as the original match.
+        donor_lon: Same as the original match.
 
     Returns:
         Dictionary containing the updated Shared JSON Contract (`posting_summary`,
@@ -2133,6 +1869,14 @@ def dispatch_pickup_and_fallback(
         handoff card for the promoted #1 recipient) and `cascade_status`.
     """
     raw_input = str(posting_text or posting_id_or_text).strip()
+    if not raw_input:
+        return {
+            "cascade_status": "MISSING_POSTING",
+            "error": (
+                "Pass the posting being re-dispatched (its text or posting_id), with the same "
+                "filters as the original match."
+            ),
+        }
     posting_record: dict[str, Any] | None = None
 
     # 1. Resolve numeric posting_id (from BigQuery `surplus_postings` or canonical list)
@@ -2154,10 +1898,11 @@ def dispatch_pickup_and_fallback(
                 job_config = bigquery.QueryJobConfig(
                     query_parameters=[bigquery.ScalarQueryParameter("pid", "INT64", pid)]
                 )
-                rows = list(client.query(sql, job_config=job_config).result())
+                rows = list(client.query(sql, job_config=job_config).result(timeout=BQ_TIMEOUT_S))
                 if rows:
                     posting_record = dict(rows[0])
             except Exception:
+                logger.exception("surplus_postings lookup failed; using canonical postings")
                 posting_record = None
 
         if posting_record is None:
@@ -2168,7 +1913,7 @@ def dispatch_pickup_and_fallback(
 
     if posting_record is not None:
         resolved_text = str(posting_record["posting_text"])
-        deadline = donor_deadline_hours if donor_deadline_hours > 0 else float(posting_record.get("hours_available") or 6.0)
+        deadline = donor_deadline_hours if donor_deadline_hours > 0 else float(posting_record.get("hours_available") or 0.0)
     else:
         resolved_text = raw_input
         deadline = donor_deadline_hours  # 0.0 = auto-infer
@@ -2176,7 +1921,13 @@ def dispatch_pickup_and_fallback(
     result = find_and_rank_recipients(
         posting_text=resolved_text,
         donor_deadline_hours=deadline,
+        pallets_estimate=pallets_estimate,
+        requires_cold_storage=requires_cold_storage,
+        requires_frozen=requires_frozen,
+        donor_lat=donor_lat,
+        donor_lon=donor_lon,
         declined_recipient_ids=declined_recipient_ids,
+        requires_pickup_van=requires_pickup_van,
         declined_recipient_names=declined_recipient_names,
         top_n=3,
     )
@@ -2207,7 +1958,8 @@ def dispatch_pickup_and_fallback(
         "dispatch_to_rank": primary["rank"],
         "recipient_id": primary["recipient_id"],
         "organization_name": primary["name"],
-        "address": f"{primary['street']}, {primary['city']} {primary['zip_code']}",
+        "address": primary["address"],
+        "address_note": primary["address_note"],
         "distance_km": primary["distance_km"],
         "transport_mode": (
             "Recipient Self-Pickup (Has Refrigerated Van)"
@@ -2237,6 +1989,45 @@ def dispatch_pickup_and_fallback(
 # ---------------------------------------------------------------------------
 # Bonus Tool: 10-Posting Equity Audit Tool (Supports Lane 1, Lane 2 & Lane 5)
 # ---------------------------------------------------------------------------
+# Used only when BigQuery is unreachable, and labeled as such in the output.
+_FALLBACK_METRO_POVERTY_PCT = 17.2
+_FALLBACK_METRO_NO_VEHICLE_PCT = 20.0
+
+
+def _metro_baseline() -> tuple[float, float, int | None, str]:
+    """Population-weighted metro poverty / no-vehicle rates: (poverty%, no_vehicle%, tracts, source)."""
+    client = _get_bq_client()
+    if client is not None:
+        try:
+            sql = f"""
+            SELECT
+              ROUND(100 * SUM(poverty_rate * total_pop) / NULLIF(SUM(total_pop), 0), 1) AS metro_poverty_pct,
+              ROUND(100 * SUM(no_vehicle_rate * total_pop) / NULLIF(SUM(total_pop), 0), 1) AS metro_no_vehicle_pct,
+              COUNT(*) AS tracts
+            FROM `{client.project}.{DEFAULT_DATASET}.tract_demographics`
+            """
+            row = dict(next(iter(client.query(sql).result(timeout=BQ_TIMEOUT_S))))
+            if row.get("metro_poverty_pct") is not None:
+                return (
+                    float(row["metro_poverty_pct"]),
+                    float(row["metro_no_vehicle_pct"]),
+                    int(row["tracts"]),
+                    "bigquery: a4i_food.tract_demographics (population-weighted)",
+                )
+        except Exception:
+            logger.exception("Metro baseline query failed; using fixed fallback")
+    return (
+        _FALLBACK_METRO_POVERTY_PCT,
+        _FALLBACK_METRO_NO_VEHICLE_PCT,
+        None,
+        "fixed fallback estimate (BigQuery tract_demographics unavailable)",
+    )
+
+
+def _avg(values: list[float]) -> float | None:
+    return round(sum(values) / len(values), 1) if values else None
+
+
 def run_equity_audit_across_postings() -> dict[str, Any]:
     """Run the matcher across all 10 surplus postings and audit neighborhood equity impact.
 
@@ -2246,114 +2037,123 @@ def run_equity_audit_across_postings() -> dict[str, Any]:
     census tracts against the metro-wide baseline.
 
     Returns:
-        Dictionary with per-posting top matches, matched average `poverty_rate` and
-        `pct_no_vehicle`, metro baseline comparison, and an honest interpretation for
-        the coordinator and judges.
+        Dictionary with per-posting top matches (and the search backend each used), matched
+        averages, the metro baseline and its `baseline_source`, numeric `equity_lift`
+        deltas, and an `audit_conclusion` generated from those numbers.
     """
-    per_posting_results: list[dict[str, Any]] = []
-    poverty_vals: list[float] = []
-    no_vehicle_vals: list[float] = []
 
-    for p in CANONICAL_SURPLUS_POSTINGS:
-        res = find_and_rank_recipients(
-            posting_text=p["posting_text"],
-            donor_deadline_hours=float(p["hours_available"]),
+    def top_match(posting: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+        return posting, find_and_rank_recipients(
+            posting_text=posting["posting_text"],
+            donor_deadline_hours=float(posting["hours_available"]),
             top_n=1,
         )
+
+    # Each posting is an independent BigQuery round trip; run them side by side.
+    with ThreadPoolExecutor(max_workers=5) as pool:
+        results = list(pool.map(top_match, CANONICAL_SURPLUS_POSTINGS))
+
+    per_posting_results: list[dict[str, Any]] = []
+    for p, res in results:
         top = res["matches"][0] if res.get("matches") else None
-        if top:
-            pov = float(top["equity_context"]["poverty_rate"])
-            nov = float(top["equity_context"]["pct_no_vehicle"])
-            poverty_vals.append(pov)
-            no_vehicle_vals.append(nov)
-            per_posting_results.append(
-                {
-                    "posting_id": p["posting_id"],
-                    "track": p["track"],
-                    "posting_text": p["posting_text"],
-                    "matched_recipient": top["name"],
-                    "cold_storage": top["cold_storage"],
-                    "tract_poverty_rate_pct": pov,
-                    "tract_no_vehicle_pct": nov,
-                }
+        per_posting_results.append(
+            {
+                "posting_id": p["posting_id"],
+                "track": p["track"],
+                "posting_text": p["posting_text"],
+                "matched_recipient": top["name"] if top else None,
+                "cold_storage": top["cold_storage"] if top else None,
+                "loading_dock": top["loading_dock"] if top else None,
+                "tract_poverty_rate_pct": top["equity_context"]["poverty_rate"] if top else None,
+                "tract_no_vehicle_pct": top["equity_context"]["pct_no_vehicle"] if top else None,
+                "search_backend": res.get("search_backend"),
+                "search_error": res.get("search_error"),
+            }
+        )
+
+    metro_poverty_pct, metro_no_vehicle_pct, tract_count, baseline_source = _metro_baseline()
+    matched = [r for r in per_posting_results if r["matched_recipient"]]
+    avg_poverty = _avg([r["tract_poverty_rate_pct"] for r in matched if r["tract_poverty_rate_pct"] is not None])
+    avg_no_vehicle = _avg([r["tract_no_vehicle_pct"] for r in matched if r["tract_no_vehicle_pct"] is not None])
+    poverty_delta = round(avg_poverty - metro_poverty_pct, 1) if avg_poverty is not None else None
+    no_vehicle_delta = round(avg_no_vehicle - metro_no_vehicle_pct, 1) if avg_no_vehicle is not None else None
+
+    # The conclusion states what the numbers show, including when they cut against us.
+    if avg_poverty is None or avg_no_vehicle is None:
+        conclusion = ["No posting produced a qualified match with tract data, so there is nothing to compare."]
+    else:
+        conclusion = [
+            f"Across {len(matched)} of {len(per_posting_results)} postings with a qualified match, "
+            f"the top recipient's census tract averaged {avg_poverty}% poverty ({poverty_delta:+g} pts vs. "
+            f"the {metro_poverty_pct}% metro baseline) and {avg_no_vehicle}% households without a vehicle "
+            f"({no_vehicle_delta:+g} pts vs. {metro_no_vehicle_pct}%)."
+        ]
+        if poverty_delta > 0 and no_vehicle_delta > 0:
+            conclusion.append("On both measures, matches leaned toward higher-need tracts.")
+        elif poverty_delta < 0 and no_vehicle_delta < 0:
+            conclusion.append("On both measures, matches went to lower-need tracts than the metro average.")
+        else:
+            conclusion.append("The two need measures point in different directions.")
+
+        winners = Counter(r["matched_recipient"] for r in matched)
+        if len(winners) < len(matched):
+            name, wins = winners.most_common(1)[0]
+            conclusion.append(
+                f"Only {len(winners)} distinct organization(s) were chosen ({name} won {wins}), "
+                "so these averages describe few tracts."
             )
-
-    # Query metro-wide baseline from BigQuery if available, else Chicago ACS baseline
-    metro_poverty_pct = 17.2
-    metro_no_vehicle_pct = 20.0
-    client = _get_bq_client()
-    if client is not None:
-        try:
-            project_id = client.project
-            sql = f"""
-            SELECT
-              ROUND(100 * SUM(poverty_rate * total_pop) / NULLIF(SUM(total_pop), 0), 1) AS metro_poverty_pct,
-              ROUND(100 * SUM(no_vehicle_rate * total_pop) / NULLIF(SUM(total_pop), 0), 1) AS metro_no_vehicle_pct
-            FROM `{project_id}.{DEFAULT_DATASET}.tract_demographics`
-            """
-            rows = list(client.query(sql).result())
-            if rows and rows[0].get("metro_poverty_pct") is not None:
-                metro_poverty_pct = float(rows[0]["metro_poverty_pct"])
-                metro_no_vehicle_pct = float(rows[0]["metro_no_vehicle_pct"])
-        except Exception:
-            pass
-
-    matched_avg_poverty = round(sum(poverty_vals) / max(1, len(poverty_vals)), 1)
-    matched_avg_no_vehicle = round(sum(no_vehicle_vals) / max(1, len(no_vehicle_vals)), 1)
-
-    poverty_delta = round(matched_avg_poverty - metro_poverty_pct, 1)
-    no_vehicle_delta = round(matched_avg_no_vehicle - metro_no_vehicle_pct, 1)
+        for track in dict.fromkeys(r["track"] for r in matched):
+            track_avg = _avg(
+                [r["tract_poverty_rate_pct"] for r in matched
+                 if r["track"] == track and r["tract_poverty_rate_pct"] is not None]
+            )
+            if track_avg is not None and track_avg < metro_poverty_pct:
+                docks = sum(1 for r in matched if r["track"] == track and r["loading_dock"])
+                conclusion.append(
+                    f"{track} postings averaged {track_avg}% poverty, below the metro baseline "
+                    f"({docks} of their matches have loading docks)."
+                )
+    unmatched = len(per_posting_results) - len(matched)
+    if unmatched:
+        conclusion.append(f"{unmatched} posting(s) had no qualified recipient.")
+    if any(r["search_backend"] != "bigquery_vector_search" for r in per_posting_results):
+        conclusion.append("Some postings were not matched against live BigQuery (see search_backend).")
+    if tract_count is None:
+        conclusion.append("The metro baseline is a fixed fallback estimate, not live tract data.")
 
     return {
         "postings_evaluated": len(per_posting_results),
+        "postings_matched": len(matched),
         "matched_tracts_avg": {
-            "poverty_rate_pct": matched_avg_poverty,
-            "pct_no_vehicle": matched_avg_no_vehicle,
+            "poverty_rate_pct": avg_poverty,
+            "pct_no_vehicle": avg_no_vehicle,
         },
         "metro_baseline_avg": {
             "poverty_rate_pct": metro_poverty_pct,
             "pct_no_vehicle": metro_no_vehicle_pct,
         },
+        "baseline_source": baseline_source,
         "equity_lift": {
-            "poverty_rate_delta_pct_points": f"{poverty_delta:+g}%",
-            "no_vehicle_delta_pct_points": f"{no_vehicle_delta:+g}%",
+            "poverty_rate_delta_pct_points": poverty_delta,
+            "no_vehicle_delta_pct_points": no_vehicle_delta,
         },
-        "audit_conclusion": (
-            f"Across all 10 surplus postings, our equity-weighted tie-breaker directed food "
-            f"to census tracts averaging {matched_avg_poverty}% poverty (vs. {metro_poverty_pct}% "
-            f"metro baseline, {poverty_delta:+g} pts) and {matched_avg_no_vehicle}% no-vehicle "
-            f"households (vs. {metro_no_vehicle_pct}% metro baseline, {no_vehicle_delta:+g} pts). "
-            "Note: FARM track bulk loads (e.g., 5 tons of potatoes) naturally skew toward "
-            "industrial warehouse tracts with loading docks unless split across neighborhood pantries."
-        ),
+        "audit_conclusion": " ".join(conclusion),
         "matches_by_posting": per_posting_results,
         "cohorts": [
             {
                 "cohort": "Metro Baseline (All Census Tracts)",
-                "count_units": 1332,
+                "count_units": tract_count,
                 "avg_poverty_rate_pct": metro_poverty_pct,
                 "avg_no_vehicle_pct": metro_no_vehicle_pct,
             },
             {
                 "cohort": "Agent Top-Ranked Matches (Need-Weighted)",
-                "count_units": len(per_posting_results),
-                "avg_poverty_rate_pct": matched_avg_poverty,
-                "avg_no_vehicle_pct": matched_avg_no_vehicle,
+                "count_units": len(matched),
+                "avg_poverty_rate_pct": avg_poverty,
+                "avg_no_vehicle_pct": avg_no_vehicle,
             },
         ],
     }
-
-
-run_equity_audit = run_equity_audit_across_postings
-
-
-# Export list for easy ADK Agent import in `agent/agent.py` (Lane 2)
-UBER_RESCUE_TOOLS = [
-    check_shelf_life_clock,
-    find_and_rank_recipients,
-    dispatch_pickup_and_fallback,
-    run_equity_audit_across_postings,
-]
 
 
 if __name__ == "__main__":
@@ -2396,6 +2196,7 @@ if __name__ == "__main__":
         "10 crates of spinach, harvested yesterday, needs cold storage",
         donor_deadline_hours=6,
     )
+    print(f"  backend={spinach_match['search_backend']}")
     for m in spinach_match["matches"]:
         print(
             f"  ✓ Match #{m['rank']}: {m['name']} ({m['distance_km']} km) | "
@@ -2419,21 +2220,23 @@ if __name__ == "__main__":
             f"    - {sp['name']}: {sp['allocated_pallets']} pallets "
             f"(max_pallets={sp['max_pallets']}, {sp['distance_km']} km)"
         )
+    print(f"    unallocated: {potato_match['unallocated_pallets']} pallets")
 
     # 4. Milestone 3C: Cascading Uber Dispatch ("They said no. Who's next?")
     print("\n[3] MILESTONE 3C: Cascading Re-Dispatch ('They said no. Who's next?')")
     d_initial = dispatch_pickup_and_fallback("1")
-    p1 = d_initial["active_dispatch"]
-    print(f"  ✓ Initial Dispatch (#1) : {p1['organization_name']} (ID {p1['recipient_id']}) | {p1['transport_mode']}")
-    print(f"    SMS: {p1['sms_message']}")
-    d_fallback = dispatch_pickup_and_fallback("1", declined_recipient_ids=str(p1["recipient_id"]))
-    p2 = d_fallback["active_dispatch"]
-    print(f"  ✓ After #1 Declines     : [{d_fallback['cascade_status']}] -> Promoted: {p2['organization_name']} (ID {p2['recipient_id']})")
-    print(f"    SMS: {p2['sms_message']}")
+    if d_initial["matches"]:
+        p1 = d_initial["active_dispatch"]
+        print(f"  ✓ Initial Dispatch (#1) : {p1['organization_name']} (ID {p1['recipient_id']}) | {p1['transport_mode']}")
+        print(f"    SMS: {p1['sms_message']}")
+        d_fallback = dispatch_pickup_and_fallback("1", declined_recipient_ids=str(p1["recipient_id"]))
+        p2 = d_fallback["active_dispatch"]
+        print(f"  ✓ After #1 Declines     : [{d_fallback['cascade_status']}] -> {p2.get('organization_name') or p2.get('status')}")
+    else:
+        print(f"  (no qualified recipient for posting #1: {d_initial['cascade_status']})")
 
     # 5. Bonus: 10-Posting Equity Audit
     print("\n[4] BONUS: 10-Posting Neighborhood Equity Audit")
     audit = run_equity_audit_across_postings()
     print(f"  ✓ {audit['audit_conclusion']}")
     print("\n✅ ALL LANE 3 MILESTONES & JUDGE TRAP CHECKS PASSED!")
-

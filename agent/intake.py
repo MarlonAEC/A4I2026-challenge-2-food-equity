@@ -391,10 +391,13 @@ def build_pantry_profile(
         if dock and stated is None:
             missing["max_pallets"] = FOLLOW_UP_QUESTIONS["max_pallets"]
         else:
-            # max_pallets is holding capacity, not dock access: like the corpus's no-dock pantries
-            # (Greenline, Third Ward), hand-carry sites hold at least 1. The matcher rejects 0
-            # outright, so a 0 here would make the pantry unmatchable for any offer.
-            max_pallets = max(1, int(stated)) if stated is not None else 1
+            # Hand-carry sites take boxes, not pallets: max_pallets=0, as the generated corpus
+            # encodes small neighborhood pantries. The matcher offers them loads up to one
+            # pallet's worth, delivered as boxes.
+            if dock:
+                max_pallets = max(1, int(stated))
+            else:
+                max_pallets = int(stated) if stated is not None else 0
             interpretation["max_pallets"] = (
                 f"max_pallets={max_pallets}" + ("" if dock else " (hand-carry only, boxes not pallets)")
             )
@@ -671,7 +674,7 @@ def register_pantry(
         storage = f"local_registry:{INTAKE_REGISTRY_PATH.name}"
 
     probe = _probe_posting(record, food_needs)
-    candidates, source = _fetch_candidates(probe, record["latitude"], record["longitude"], top_k=20)
+    candidates, source, _ = _fetch_candidates(probe, record["latitude"], record["longitude"], top_k=20)
     new_id = int(result["recipient_id"])
     hit = next((c for c in candidates if int(c.get("recipient_id") or -1) == new_id), None)
     # Being retrieved is not enough: the matcher's hard filters decide whether they are ever offered food.
@@ -742,8 +745,9 @@ conversation that ends with their pantry in the recipient corpus and searchable.
 ## Be honest about what the profile does
 Explain that hard limits matter: a pantry with no refrigeration will never be sent
 perishables even if they ask for greens, a household fridge won't be sent more than a
-pallet of perishables, and no offer will assign them more than the capacity they gave.
-That protects them from food they can't store.
+pallet of perishables, a hand-carry-only pantry is only offered loads of up to about one
+pallet's worth (as boxes), and no offer will assign them more than the capacity they gave.
+Don't promise anything beyond these limits. That protects them from food they can't store.
 
 When the pantry is registered (or the coordinator wants to do something else, like post
 surplus), transfer back to `food_equity_surplus_broker`.
