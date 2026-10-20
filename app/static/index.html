@@ -80,8 +80,9 @@ header.top { display: flex; align-items: center; justify-content: space-between;
 .summary { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; }
 .summary .offer { font-size: 13px; color: var(--muted); max-width: 46ch; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .summary .offer b { color: var(--fg); font-weight: 600; }
-.btn-change { font-size: 12.5px; font-weight: 600; border: 1px solid var(--line); background: var(--surface); color: var(--fg); border-radius: 999px; padding: 7px 12px; display: inline-flex; align-items: center; gap: 6px; }
-.btn-change:hover { border-color: var(--accent); }
+.brand { cursor: pointer; border-radius: 10px; }
+.summary .offer { cursor: pointer; }
+.summary .offer:hover { color: var(--fg); }
 
 /* Screen 1: the offer (opens here). Screen 2: results, tabs left + map right. */
 .screen-offer { min-height: 0; overflow: auto; display: grid; justify-items: center; align-content: start; padding-top: 2vh; }
@@ -241,7 +242,7 @@ label.f input, label.f textarea { width: 100%; font: inherit; font-size: 13.5px;
 
 <div class="app" id="app">
   <header class="top">
-    <div class="brand">
+    <div class="brand" id="brand" role="button" tabindex="0" title="Back to the offer">
       <div class="mark">R</div>
       <div>
         <h1>RescueDispatch</h1>
@@ -249,12 +250,10 @@ label.f input, label.f textarea { width: 100%; font: inherit; font-size: 13.5px;
     </div>
     <div class="summary" id="summary" hidden>
       <span class="offer" id="offerSummary"></span>
-      <button class="btn-change" type="button" id="changeBtn">✏️ Change the offer</button>
     </div>
     <div class="chips">
       <span class="chip">📍 <b>Chicago</b> · 183 pantries</span>
       <span class="chip" id="srcChip">🧪 <b>Demo data</b></span>
-      <span class="chip">🧠 Google ADK + BigQuery vector search</span>
     </div>
   </header>
 
@@ -635,7 +634,10 @@ $("scenarios").addEventListener("click", e => {
   declined = []; run();
 });
 $("findBtn").addEventListener("click", () => { declined = []; run(); });
-$("changeBtn").addEventListener("click", () => { showScreen("offer"); $("posting_text").focus(); });
+const backToOffer = () => { showScreen("offer"); $("posting_text").focus(); };
+$("brand").addEventListener("click", backToOffer);
+$("brand").addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); backToOffer(); } });
+$("offerSummary").addEventListener("click", backToOffer);
 $("posting_text").addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); declined = []; run(); } });
 loadEquity();
 showScreen("offer");
