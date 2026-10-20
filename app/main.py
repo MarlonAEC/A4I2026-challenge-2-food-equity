@@ -12,16 +12,20 @@ import os
 from pathlib import Path
 from typing import Any
 
-from dotenv import load_dotenv
+try:
+    from dotenv import load_dotenv
+
+    # Load .env from project root or current working directory
+    _ROOT_DIR = Path(__file__).resolve().parent.parent if "__file__" in globals() else Path.cwd()
+    load_dotenv(_ROOT_DIR / ".env")
+    load_dotenv()
+except ImportError:
+    pass
+
 from fastapi import FastAPI
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-
-# Load .env from project root or current working directory
-_ROOT_DIR = Path(__file__).resolve().parent.parent if "__file__" in globals() else Path.cwd()
-load_dotenv(_ROOT_DIR / ".env")
-load_dotenv()
 
 from agent.tools import check_shelf_life_clock, find_and_rank_recipients
 
@@ -148,34 +152,36 @@ def api_brief(req: BriefRequest) -> dict[str, Any]:
     q = req.question.lower()
     answer = ""
 
-    if "who can take" in q:
+    if "who can take" in q or "match" in q or "recommend" in q:
         if top:
             answer = f"{top['name']}, {top['street']}. They have a {top['cold_storage']} cooler and their own van, and can collect within {top['pickup_window_hours']}h with {top['margin_hours']}h to spare."
         else:
             answer = "No recipient passed every constraint."
-    elif "why them" in q or "not the other" in q:
+    elif "why them" in q or "not the other" in q or "decoy" in q or "greenline" in q:
         if decoy:
             answer = f"{decoy['name']} ranked #{decoy.get('semantic_rank', 1)} on meaning, but was blocked: {decoy.get('rejection_reason', 'missing storage')}. {top['name'] if top else 'Next recipient'} passes every check and serves a high-need community."
         else:
             answer = f"{top['name'] if top else 'Matched recipient'} passed every constraint check."
-    elif "they said no" in q or "who's next" in q:
+    elif "harborview" in q or "contradiction" in q:
+        answer = "Harborview Neighbors Trust was blocked due to a profile contradiction: claiming a walk-in freezer with only a single cupboard shelf of storage."
+    elif "they said no" in q or "who's next" in q or "decline" in q or "backup" in q:
         if backup:
             answer = f"{backup['name']}, {backup['street']}. {backup['cold_storage']} cooler, own van, collects within {backup['pickup_window_hours']}h. Press 'They said no' to promote them."
         else:
             answer = "No additional backup available."
-    elif "how long" in q or "last" in q or "clock" in q:
+    elif "how long" in q or "last" in q or "clock" in q or "shelf" in q or "usda" in q:
         answer = f"USDA FoodKeeper lists {clock.get('matched_usda_product')} at {clock.get('usda_shelf_life_hours')}h. Capped at donor deadline of {clock.get('donor_deadline_hours')}h."
     elif "pick it up" in q or "van" in q or "driver" in q:
         if top and top.get("refrigerated_transport"):
             answer = f"{top['name']} picks up in their own refrigerated van. No volunteer driver needed."
         else:
             answer = f"{top['name'] if top else 'Recipient'} has no van. Send a volunteer driver with a cooler."
-    elif "neighborhood" in q or "equity" in q:
+    elif "neighborhood" in q or "equity" in q or "poverty" in q:
         if top:
             answer = f"{top['name']} is located in a tract where {top.get('equity_context', {}).get('poverty_rate')}% live in poverty and {top.get('equity_context', {}).get('pct_no_vehicle')}% of households have no car."
         else:
             answer = "Equity data not available."
-    elif "write the pickup message" in q or "message" in q:
+    elif "write the pickup message" in q or "message" in q or "sms" in q or "text" in q:
         answer = top.get("draft_message", "") if top else ""
     else:
         answer = f"Primary dispatch candidate is {top['name'] if top else 'none'}."
