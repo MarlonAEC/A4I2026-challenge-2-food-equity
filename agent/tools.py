@@ -125,7 +125,7 @@ def find_and_rank_recipients(
         Structured dictionary matching the Shared JSON Contract (`posting_summary`, `matches`, `rejected_decoys`).
     """
     declined_set = {name.strip().lower() for name in (declined_recipient_names or [])}
-    project_id = os.environ.get("GOOGLE_CLOUD_PROJECT")
+    project_id = os.environ.get("GOOGLE_CLOUD_PROJECT", "qwiklabs-gcp-04-300332596f08")
     dataset_id = os.environ.get("BQ_DATASET", "a4i_food")
 
     candidates: list[dict[str, Any]] = []

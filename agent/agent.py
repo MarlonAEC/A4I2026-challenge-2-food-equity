@@ -1,7 +1,8 @@
 """Lane 2 (ADK Agent Lead): Main ADK Agent Definition + MCP Integration."""
 
+from __future__ import annotations
+
 import os
-from google.adk.agents import Agent
 
 from .prompt import SYSTEM_INSTRUCTION
 from .tools import (
@@ -10,7 +11,6 @@ from .tools import (
     find_and_rank_recipients,
 )
 
-# Optional: Connect MCP Toolbox for Databases / BigQuery MCP server if URL is configured
 tools_list = [
     check_shelf_life_clock,
     find_and_rank_recipients,
@@ -27,13 +27,18 @@ if MCP_TOOLBOX_URL:
     except Exception as exc:
         print(f"[agent] MCP Toolbox not reachable at {MCP_TOOLBOX_URL}: {exc}")
 
-root_agent = Agent(
-    name="food_equity_surplus_broker",
-    model=os.environ.get("ADK_MODEL", "gemini-2.5-flash"),
-    description=(
-        "Real-time 'Uber for Food Rescue' broker that matches expiring restaurant/grocer "
-        "surplus with verified food banks using BigQuery Vector Search and hard cold-chain constraints."
-    ),
-    instruction=SYSTEM_INSTRUCTION,
-    tools=tools_list,
-)
+try:
+    from google.adk.agents import Agent
+
+    root_agent = Agent(
+        name="food_equity_surplus_broker",
+        model=os.environ.get("ADK_MODEL", "gemini-2.5-flash"),
+        description=(
+            "Real-time 'Uber for Food Rescue' broker that matches expiring restaurant/grocer "
+            "surplus with verified food banks using BigQuery Vector Search and hard cold-chain constraints."
+        ),
+        instruction=SYSTEM_INSTRUCTION,
+        tools=tools_list,
+    )
+except ImportError:
+    root_agent = None

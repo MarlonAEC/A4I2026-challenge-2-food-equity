@@ -8,6 +8,8 @@
 ---
 
 ## 👥 Team Roster & Branches
+- **Shared GCP Project ID:** `qwiklabs-gcp-04-300332596f08`
+- **BigQuery Dataset:** `qwiklabs-gcp-04-300332596f08.a4i_food` (Region: `US`)
 
 | Role | Teammate Name | Git Branch | Primary Folder / Files |
 | :--- | :--- | :--- | :--- |
@@ -15,7 +17,7 @@
 | **2. ADK Agent & MCP Lead** | `@TODO_Name_2` | `agent` | `agent/agent.py`, `agent/prompt.py` |
 | **3. Custom "Uber" Tools Lead** | `@TODO_Name_3` | `tools` | `agent/tools.py` |
 | **4. Frontend & UI Story Lead** | `@Andrew` | `frontend` | `app/`, `docs/`, `ROADMAP.md` |
-| **5. Cloud Run, QA & Pitch Lead** | `@TODO_Name_5` | `deploy-story` | `Dockerfile`, `deploy.sh`, `docs/` |
+| **5. Cloud Run, QA & Pitch Lead** | `@MarlonAEC` | `deploy-story` | `Dockerfile`, `deploy.sh`, `scripts/verify_traps.py`, `docs/` |
 
 ---
 
@@ -142,17 +144,17 @@
 
 ---
 
-## 🚢 Lane 5: Cloud Run Deploy, QA & Pitch Video (`branch: deploy-story`) — `@TODO_Name_5`
+## 🚢 Lane 5: Cloud Run Deploy, Trap QA & Pitch (`branch: deploy-story`) — `@MarlonAEC`
 
 ### Milestone 5A: Early Cloud Run Deployment (Target: 2:00)
-- [ ] Create `Dockerfile` and `deploy.sh` (`gcloud run deploy --min-instances=1`).
-- [ ] Deploy initial container to **Google Cloud Run** and share live URL with the team.
+- [x] Create `Dockerfile` and `deploy.sh` (`gcloud run deploy --min-instances=1`).
+- [ ] Deploy initial container to **Google Cloud Run** (`bash deploy.sh`) and share live URL with the team.
 
 ### Milestone 5B: Judge Trap QA Checklist (Target: 3:00)
-- [ ] Verify **Trap 1 (Decoy):** Spinach posting ranks a real refrigerated pantry #1 and explicitly shows `Greenline Community Pantry` rejected due to `cold_storage = 'none'`.
-- [ ] Verify **Trap 2 (Contradiction):** `Harborview Neighbors Trust` is flagged for contradicting itself.
-- [ ] Verify **Trap 3 (Ties):** `Cedar Street` vs. `Maple Street` tie-breaker explains the neighborhood/distance reason.
-- [ ] Verify **Trap 4 ("They Said No"):** Declining #1 smoothly promotes #2 with a new outreach message.
+- [x] Verify **Trap 1 (Decoy):** Spinach posting ranks a real refrigerated pantry #1 and explicitly shows `Greenline Community Pantry` rejected due to `cold_storage = 'none'` (`scripts/verify_traps.py`).
+- [x] Verify **Trap 2 (Contradiction):** `Harborview Neighbors Trust` is flagged for contradicting itself (`scripts/verify_traps.py`).
+- [x] Verify **Trap 3 (Ties):** `Cedar Street` vs. `Maple Street` tie-breaker explains the neighborhood/distance reason (`scripts/verify_traps.py`).
+- [x] Verify **Trap 4 ("They Said No"):** Declining #1 smoothly promotes #2 with a new outreach message (`scripts/verify_traps.py`).
 
 ### Milestone 5C: Pitch Deck, Video Recording & Submission (Target: 3:30 – 4:15)
 - [ ] **Slide 1:** The Problem, our City, and our Opening Scenario.
