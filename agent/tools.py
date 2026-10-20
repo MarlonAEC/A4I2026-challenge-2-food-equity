@@ -557,6 +557,34 @@ def check_shelf_life_clock(
     # High-precision domain rules + subtitle/keyword scoring over the 661 USDA products
     matched_rec: dict[str, Any] | None = None
 
+    # Resolve canonical USDA FoodKeeper product preferences first (Notebook Section 10)
+    # so both live BigQuery and local fallback rank the exact canonical item #1
+    # (e.g., "Spinach" -> "Lettuce (leaf, spinach)" instead of "Bagged greens" or "Canned goods").
+    preferred_name: str | None = None
+    preferred_subtitle_token: str | None = None
+
+    if "spinach" in text_lower or "salad greens" in text_lower or "leafy greens" in text_lower:
+        preferred_name = "Lettuce"
+        preferred_subtitle_token = "spinach"
+    elif "milk" in text_lower:
+        preferred_name = "Milk"
+        preferred_subtitle_token = "plain"
+    elif "yogurt" in text_lower:
+        preferred_name = "Yogurt"
+    elif "bread" in text_lower or "pastries" in text_lower or "loaves" in text_lower:
+        preferred_name = "Bread"
+        preferred_subtitle_token = "commercial"
+    elif "sandwich" in text_lower or "deli" in text_lower or "prepared" in text_lower:
+        preferred_name = "Leftovers"
+    elif "potato" in text_lower:
+        preferred_name = "Potatoes"
+    elif "blueberr" in text_lower or "berries" in text_lower:
+        preferred_name = "Blueberries"
+    elif "winter squash" in text_lower or "squash" in text_lower:
+        preferred_name = "Spaghetti squash"
+    elif "nutritional supplement" in text_lower or "formula" in text_lower:
+        preferred_name = "Formula"
+
     # Check if BigQuery shelf_life table has a direct match or embedding search first
     client = _get_bq_client()
     if client is not None and products:
@@ -566,18 +594,36 @@ def check_shelf_life_clock(
             SELECT product_id, product_name, product_subtitle, keywords, category,
                    refrigerated_hours, refrigerated_note, pantry_hours, pantry_note
             FROM `{project_id}.{DEFAULT_DATASET}.shelf_life`
-            WHERE LOWER(product_name) LIKE @q
+            WHERE LOWER(product_name) = LOWER(@preferred_name)
+               OR LOWER(product_name) LIKE @q
                OR LOWER(product_subtitle) LIKE @q
                OR LOWER(keywords) LIKE @q
+            ORDER BY
+              CASE
+                WHEN LOWER(product_name) = LOWER(@preferred_name)
+                 AND (@sub_q = '' OR LOWER(IFNULL(product_subtitle, '')) LIKE @sub_q OR LOWER(IFNULL(keywords, '')) LIKE @sub_q)
+                THEN 0
+                WHEN LOWER(product_name) = LOWER(@preferred_name)
+                THEN 1
+                WHEN LOWER(IFNULL(product_subtitle, '')) LIKE @q
+                THEN 2
+                ELSE 3
+              END,
+              SAFE_CAST(product_id AS INT64) ASC,
+              product_id ASC
             LIMIT 5
             """
             from google.cloud import bigquery  # type: ignore
 
             # Extract key food noun for BQ query
             probe = "spinach" if "spinach" in text_lower else text_lower.split(",")[0][:30]
+            pref_param = preferred_name or ""
+            sub_param = f"%{preferred_subtitle_token}%" if preferred_subtitle_token else ""
             job_config = bigquery.QueryJobConfig(
                 query_parameters=[
-                    bigquery.ScalarQueryParameter("q", "STRING", f"%{probe.strip()}%")
+                    bigquery.ScalarQueryParameter("preferred_name", "STRING", pref_param),
+                    bigquery.ScalarQueryParameter("sub_q", "STRING", sub_param),
+                    bigquery.ScalarQueryParameter("q", "STRING", f"%{probe.strip()}%"),
                 ]
             )
             rows = list(client.query(sql, job_config=job_config).result())
@@ -607,32 +653,6 @@ def check_shelf_life_clock(
 
     # Local semantic + subtitle/keyword resolver (handles all 661 FoodKeeper entries)
     if matched_rec is None and products:
-        # Check explicit canonical synonyms from Notebook Section 10 first
-        preferred_name: str | None = None
-        preferred_subtitle_token: str | None = None
-
-        if "spinach" in text_lower or "salad greens" in text_lower or "leafy greens" in text_lower:
-            preferred_name = "Lettuce"
-            preferred_subtitle_token = "spinach"
-        elif "milk" in text_lower:
-            preferred_name = "Milk"
-            preferred_subtitle_token = "plain"
-        elif "yogurt" in text_lower:
-            preferred_name = "Yogurt"
-        elif "bread" in text_lower or "pastries" in text_lower or "loaves" in text_lower:
-            preferred_name = "Bread"
-            preferred_subtitle_token = "commercial"
-        elif "sandwich" in text_lower or "deli" in text_lower or "prepared" in text_lower:
-            preferred_name = "Leftovers"
-        elif "potato" in text_lower:
-            preferred_name = "Potatoes"
-        elif "blueberr" in text_lower or "berries" in text_lower:
-            preferred_name = "Blueberries"
-        elif "winter squash" in text_lower or "squash" in text_lower:
-            preferred_name = "Spaghetti squash"
-        elif "nutritional supplement" in text_lower or "formula" in text_lower:
-            preferred_name = "Formula"
-
         if preferred_name:
             for rec in products:
                 if rec["product_name"].lower() == preferred_name.lower():
