@@ -34,6 +34,11 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 FOODKEEPER_JSON_PATH = REPO_ROOT / "data" / "foodkeeper.json"
 PROFILE_COMPONENTS_PATH = REPO_ROOT / "data" / "profile_components.json"
 MATCH_SQL_PATH = REPO_ROOT / "sql" / "match_recipients.sql"
+# Pantries onboarded by the conversational intake agent (agent/intake.py) while BigQuery is
+# unreachable. Appended to the local fallback corpus so they are searchable immediately.
+INTAKE_REGISTRY_PATH = Path(
+    os.environ.get("INTAKE_REGISTRY_PATH", str(REPO_ROOT / "data" / "intake_recipients.json"))
+)
 
 DEFAULT_DATASET = os.environ.get("BQ_DATASET", "a4i_food")
 DEFAULT_LOCATION = os.environ.get("BQ_LOCATION", "US")
@@ -1287,7 +1292,18 @@ def _build_local_fallback_corpus() -> list[dict[str, Any]]:
         },
     ]
 
-    return planted_cases + generated_orgs
+    return planted_cases + generated_orgs + _load_intake_registry()
+
+
+def _load_intake_registry() -> list[dict[str, Any]]:
+    """Load pantries registered offline by the intake agent (empty list if none yet)."""
+    if not INTAKE_REGISTRY_PATH.exists():
+        return []
+    try:
+        rows = json.loads(INTAKE_REGISTRY_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    return [dict(r) for r in rows] if isinstance(rows, list) else []
 
 
 def _semantic_similarity_local(query_text: str, profile_text: str) -> float:

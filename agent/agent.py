@@ -14,6 +14,7 @@ try:
 except ImportError:
     pass
 
+from .intake import intake_agent
 from .prompt import SYSTEM_INSTRUCTION
 from .tools import (
     check_shelf_life_clock,
@@ -51,6 +52,7 @@ try:
         ),
         instruction=SYSTEM_INSTRUCTION,
         tools=tools_list,
+        sub_agents=[intake_agent] if intake_agent is not None else [],
     )
 except ImportError:
     root_agent = None
