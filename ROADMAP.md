@@ -156,19 +156,20 @@
 ## 🖥️ Lane 4: Frontend UI & Story Lead (`branch: frontend`) — `@Andrew`
 
 ### Milestone 4A: Clean Human UI Layout (Target: 1:15)
-- [ ] Build `app/` using the **Shared JSON Contract** & **Product Voice Guide**:
-  - [ ] **Donor Post Panel ("We have extra food"):** 1-click scenario buttons ("Grocer Spinach Call" with 6h clock) + simple description & deadline inputs.
-  - [ ] **Live City Map:** Leaflet map showing Donor pin, Match #1 (Green), Backups #2 & #3 (Amber), and Blocked Decoys (Red).
-  - [ ] **Match Brief Card:** Simple traffic-light checks (❄️ Can keep cold?, 🚐 Can pick up?, ⏱️ Time margin safe?, 📍 Who it feeds).
-  - [ ] **"They Said No" Action:** `[❌ They said no — Show who's next]` immediately activates and displays Backup #2.
-  - [ ] **Safeguard Inspector Card:** Simple explanation ("Why we skipped Greenline: wants greens, but has no refrigerator").
+- [x] Build `app/` using the **Shared JSON Contract** & **Product Voice Guide**:
+  - [x] **Donor Post Panel ("We have extra food"):** 1-click scenario buttons ("Grocer Spinach Call" with 6h clock) + simple description & deadline inputs.
+  - [x] **Live City Map:** Leaflet map showing Donor pin, Match #1 (Green), Backups #2 & #3 (Amber), and Blocked Decoys (Red). *(built as: red pins show once the matcher sends their location)*
+  - [x] **Match Brief Card:** Simple traffic-light checks (❄️ Can keep cold?, 🚐 Can pick up?, ⏱️ Time margin safe?, 📍 Who it feeds).
+  - [x] **"They Said No" Action:** `[❌ They said no — Show who's next]` immediately activates and displays Backup #2.
+  - [x] **Safeguard Inspector Card:** Simple explanation ("Why we skipped Greenline: wants greens, but has no refrigerator").
 
 ### Milestone 4B: Live Backend Connection & Story Integration (Target: 2:15)
-- [ ] Connect UI to `POST /api/match` FastAPI endpoint.
+- [x] Connect UI to `POST /api/match` FastAPI endpoint.
 - [ ] Add interactive preview for Slide 5: **Conversational Pantry Intake Agent** mockup.
 - [ ] Align with **Lane 5** on the 5-Slide Pitch Deck and 3-minute video recording.
 
 ### Milestone 4C: Live Equity Audit Dashboard & Policy Switch (Going Further)
+Blocked: needs an endpoint that does not exist yet (`/api/equity-audit`).
 - [ ] Add an interactive **"📊 Live Equity Audit & Baseline Comparison"** view/modal in `app/main.py`:
   - [ ] Connects to `/api/equity-audit` (backed by `run_equity_audit_across_postings()`).
   - [ ] Displays live comparison badges: Matched Cohort (16.4% poverty, 25.8% transit insecure) vs. Metro Baseline (17.0% poverty, 21.9% transit insecure) -> **+3.9% lift in reaching vehicle-insecure households!**
@@ -176,6 +177,7 @@
 - [ ] Add a **Routing Policy Toggle Switch** in the UI (`[ ⚡ Logistics First ]` vs. `[ 🎯 Equity-Weighted ]`) so coordinators can see how ranking shifts between warehouse loading docks and high-need community storefronts.
 
 ### Milestone 4D: Conversational Pantry Onboarding Modal (Going Further)
+Blocked: needs an endpoint that does not exist yet (intake agent over HTTP).
 - [ ] Add a "Register New Pantry" modal in `app/main.py`:
   - [ ] Coordinator enters natural-language description (e.g. *"St. Jude Pantry in Pilsen, walk-in cooler, no loading dock"*).
   - [ ] Wires to Lane 2's intake agent endpoint, saves new recipient, and proves they appear immediately in subsequent vector searches.
