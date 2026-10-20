@@ -86,11 +86,13 @@ header.top { display: flex; align-items: center; justify-content: space-between;
 
 /* Screen 1: the offer (opens here). Screen 2: results, tabs left + map right. */
 .screen-offer { min-height: 0; overflow: auto; display: grid; justify-items: center; align-content: start; padding-top: 2vh; }
-.onboard { width: min(680px, 100%); display: grid; gap: 14px; }
+.onboard { width: min(1040px, 100%); display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 14px; align-items: start; }
+.onboard .hero { grid-column: 1 / -1; }
 .onboard .hero h2 { font-size: 26px; font-weight: 700; letter-spacing: -0.02em; }
 .onboard .hero p { margin: 4px 0 0; color: var(--muted); font-size: 14px; }
-.onboard .scenarios { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-.onboard .scenario { padding: 12px; }
+.onboard .scenarios { grid-template-columns: 1fr; }
+.onboard .scenario { padding: 14px; }
+.onboard .scenario .t { font-size: 14px; }
 .onboard label.f textarea { font-size: 15px; padding: 12px; }
 .screen-results { display: grid; grid-template-columns: 440px minmax(0, 1fr); gap: 14px; min-height: 0; height: 100%; }
 .brand { display: flex; align-items: center; gap: 10px; }
@@ -228,7 +230,7 @@ label.f input, label.f textarea { width: 100%; font: inherit; font-size: 13.5px;
   .stack { overflow: visible; }
 }
 @media (max-width: 760px) {
-  .onboard .scenarios { grid-template-columns: 1fr; }
+  .onboard { grid-template-columns: minmax(0, 1fr); }
   .onboard .hero h2 { font-size: 22px; }
   .mapwrap { min-height: 300px; }
   .lights, .actions, .audit { grid-template-columns: 1fr; }
