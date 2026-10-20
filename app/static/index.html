@@ -330,7 +330,7 @@ label.f input, label.f textarea { width: 100%; font: inherit; font-size: 13.5px;
 
 <script>
 /* ---------------------------------------------------------------
-   Reads ONLY contract fields (docs/frontend_plan.md).
+   Reads ONLY contract fields (docs/frontend_plan.md); normalize() fills any the tools leave out.
    /api/match is required. /api/brief and /api/equity_audit are optional
    (Track B); the page falls back to plain template text without them.
 ---------------------------------------------------------------- */
@@ -368,9 +368,38 @@ function humanReason(d, offer) {
     case "too_slow": return `Why we skipped ${short}: they need longer to collect than the clock allows.`;
     case "no_vehicle": return `Why we skipped ${short}: no van to pick it up.`;
     case "no_freezer": return `Why we skipped ${short}: no freezer.`;
+    case "weak_cold": return `Why we skipped ${short}: their fridge isn't cold enough for this.`;
+    case "too_small": return `Why we skipped ${short}: not enough room for this much food.`;
     case "declined": return `${short} said no. Moved to the next pantry.`;
     default: return `Why we skipped ${short}.`;
   }
+}
+/* The Lane 3 tools on main return a slimmer shape than Contract 1 (search_backend, no reason_code,
+   no donor or pallets in posting_summary). Fill the gaps once so the rest of the page reads one shape. */
+function reasonFrom(text) {
+  const r = (text || "").toLowerCase();
+  if (r.includes("contradicts")) return "contradiction";
+  if (r.includes("frozen_storage=false")) return "no_freezer";
+  if (r.includes("cold_storage='none'")) return "no_cold_storage";
+  if (r.includes("clinical cold-chain")) return "weak_cold";
+  if (r.includes("capacity filter") || r.includes("volume filter")) return "too_small";
+  if (r.includes("refrigerated_transport=false")) return "no_vehicle";
+  if (r.includes("clock filter")) return "too_slow";
+  if (r.includes("declined")) return "declined";
+  return "";
+}
+function normalize(d, req) {
+  const ps = d.posting_summary = d.posting_summary || {};
+  ps.posting_text ??= req.posting_text;
+  ps.pallets_offered ??= req.pallets_offered;
+  ps.requires_frozen ??= req.requires_frozen;
+  ps.donor ??= { lat: req.donor_lat, lon: req.donor_lon };
+  d.data_source ??= d.search_backend === "bigquery_vector_search" ? "bigquery_live" : "seeded_fallback";
+  d.matches = d.matches || [];
+  d.matches.forEach(m => { m.pallets_allocated ??= Math.min(ps.pallets_offered, Math.max(1, m.max_pallets || 1)); });
+  d.rejected_decoys = d.rejected_decoys || [];
+  d.rejected_decoys.forEach(x => { x.reason_code ??= reasonFrom(x.rejection_reason); });
+  return d;
 }
 function readForm() {
   return { posting_text: $("posting_text").value.trim(), pallets_offered: parseInt($("pallets").value || "1", 10), donor_deadline_hours: parseFloat($("hours").value || "6"),
@@ -400,7 +429,7 @@ async function run() {
   try {
     const res = await fetch("/api/match", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(lastReq) });
     if (!res.ok) throw new Error("HTTP " + res.status);
-    data = await res.json();
+    data = normalize(await res.json(), lastReq);
   } catch (err) {
     $("stack").innerHTML = `<section class="card error"><b>Couldn't reach the matcher.</b><p class="empty">${esc(err.message)}. Check the server is running, then press "Find who can take it" again.</p></section>`;
     $("findBtn").disabled = false;
@@ -468,7 +497,7 @@ function renderStack(d) {
     <section class="card match">
       <div class="tag"><span class="dot"></span> #1 · They can take it</div>
       <h3>${esc(top.name)}</h3>
-      <div class="addr">${esc(top.street)} · <b class="num">${top.distance_km} km</b> · ${esc(top.service_days)} · ${room} · <a href="${routeUrl}" target="_blank" rel="noopener">Route ↗</a></div>
+      <div class="addr">${esc(top.street)} · <b class="num">${top.distance_km} km</b> · ${top.service_days ? esc(top.service_days) + " · " : ""}${room} · <a href="${routeUrl}" target="_blank" rel="noopener">Route ↗</a></div>
       <div class="lights">${lights(top, d)}</div>
       <div class="msg"><div class="k"><span>📱 Text message to send to the pantry</span><button class="copy" type="button" id="copyBtn">Copy</button></div><pre id="draft">${esc(top.draft_message)}</pre></div>
       <div class="actions">
