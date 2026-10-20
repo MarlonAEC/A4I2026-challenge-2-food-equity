@@ -357,6 +357,10 @@ def index() -> str:
                 class="bg-rose-950/70 hover:bg-rose-900 text-rose-200 border border-rose-700/80 font-semibold px-4 py-2.5 rounded-xl text-sm transition">
                 ❌ "They said no" — Show who's next
               </button>
+              <a href="https://www.google.com/maps/dir/?api=1&origin=${DONOR_LOCATION[0]},${DONOR_LOCATION[1]}&destination=${top.lat},${top.lon}" target="_blank" rel="noopener noreferrer"
+                class="bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/40 font-semibold px-4 py-2.5 rounded-xl text-sm transition inline-flex items-center gap-1.5 shadow-sm">
+                <span>📍</span> Open Driver Route in Google Maps
+              </a>
             </div>
           </div>
         `;
