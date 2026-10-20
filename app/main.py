@@ -50,6 +50,7 @@ class MatchRequest(BaseModel):
     donor_lat: float = 41.8781
     donor_lon: float = -87.6298
     declined_recipient_names: list[str] = []
+    routing_policy: str | None = None   # "equity_weighted" (tool default) or "logistics_first"
     api_key: str | None = None
 
 
@@ -74,6 +75,7 @@ def api_match(req: MatchRequest) -> dict[str, Any]:
         donor_lat=req.donor_lat,
         donor_lon=req.donor_lon,
         declined_recipient_names=req.declined_recipient_names,
+        **({"routing_policy": req.routing_policy} if req.routing_policy else {}),
     )
     result["clock"] = clock
     return result

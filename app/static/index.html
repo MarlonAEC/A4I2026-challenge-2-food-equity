@@ -191,6 +191,33 @@ details.skips .sk:first-of-type { margin-top: 8px; }
 details.skips .sk b { font-weight: 600; }
 .error { border-color: var(--bad); }
 .error b { color: var(--bad); }
+.audit { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+.audit div { background: var(--surface-2); border-radius: 10px; padding: 8px 10px; }
+.audit .k { font-size: 11px; color: var(--muted); }
+.audit .v { font-family: var(--font-display); font-size: 16px; font-weight: 600; }
+.audit .v small { font-size: 11px; color: var(--muted); font-weight: 500; font-family: var(--font-body); }
+.pol { margin-top: 10px; display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--muted); flex-wrap: wrap; }
+.pol .seg { padding: 2px; }
+.pol .seg button { padding: 6px 9px; font-size: 12px; }
+.chk.high { background: var(--donor-soft); color: var(--donor); }
+.ask { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+.ask button { font-size: 12px; padding: 6px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface-2); color: var(--fg); }
+.ask button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+.answer { margin-top: 8px; font-size: 13px; background: var(--surface-2); border-radius: 10px; padding: 10px 12px; min-height: 40px; white-space: pre-wrap; }
+.answer .src { display: block; font-size: 11px; color: var(--muted); margin-top: 4px; white-space: normal; }
+/* Register a pantry: a scripted intake conversation (demo) */
+.chat { display: grid; gap: 8px; }
+.chat .m { max-width: 85%; padding: 9px 12px; border-radius: 14px; font-size: 13.5px; line-height: 1.4; }
+.chat .m.agent { background: var(--surface-2); border-bottom-left-radius: 4px; justify-self: start; }
+.chat .m.me { background: var(--accent); color: var(--on-accent); border-bottom-right-radius: 4px; justify-self: end; }
+.chat .opts { display: flex; gap: 6px; flex-wrap: wrap; justify-self: end; }
+.chat .opts button { font-size: 12.5px; padding: 7px 11px; border-radius: 999px; border: 1px solid var(--accent); background: var(--surface); color: var(--fg); }
+.chat .opts button:hover { background: var(--accent); color: var(--on-accent); }
+.profile { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; font-size: 12.5px; margin-top: 8px; }
+.profile .k { color: var(--muted); }
+.profile .v { font-weight: 600; }
+.profile .full { grid-column: 1 / -1; }
+.profile pre { margin: 4px 0 0; white-space: pre-wrap; font: inherit; font-size: 12.5px; background: var(--surface-2); border: 1px dashed var(--line); border-radius: 10px; padding: 8px 10px; }
 
 .mapwrap { position: relative; min-height: 0; border-radius: var(--radius); overflow: hidden; border: 1px solid var(--line); background: var(--map-bg); min-width: 0; }
 #map { position: absolute; inset: 0; z-index: 1; background: var(--map-bg); }
@@ -297,6 +324,23 @@ details.skips .sk b { font-weight: 600; }
     </form>
   </section>
 
+  <!-- Screen 4: register a pantry (scripted intake conversation, demo) -->
+  <section class="screen-new" id="screenIntake" hidden>
+    <div class="form">
+      <h2>Register a pantry</h2>
+      <p class="hint">A new pantry talks to the intake agent for a minute. It writes their profile, and the next search can find them.</p>
+      <section class="card">
+        <div class="chat" id="chat"></div>
+        <form id="intakeForm" style="margin-top:10px; display:grid; gap:8px" autocomplete="off">
+          <label class="f" id="intakeLabel">Tell us about the pantry
+            <textarea id="intakeText" rows="2" placeholder="St. Jude Pantry in Pilsen, we serve about 150 families a week, mostly fresh produce and bread"></textarea>
+          </label>
+          <button class="btn primary" type="submit" id="intakeSend">Send</button>
+        </form>
+      </section>
+    </div>
+  </section>
+
   <!-- Screen 3: one offer. Cards left, map right. -->
   <section class="screen-offer" id="screenOffer" hidden>
     <main class="stack" id="stack"></main>
@@ -324,6 +368,24 @@ const STAGE_LABEL = { new: "Finding…", matched: "Ready to send", sent: "Text s
 const STAGES = ["matched", "sent", "accepted", "picked_up", "delivered"];
 const STAGE_WORD = { matched: "Matched", sent: "Text sent", accepted: "Accepted", picked_up: "Picked up", delivered: "Delivered" };
 const REASON_WORD = { no_cold_storage: "no refrigerator", contradiction: "contradictory profile", no_vehicle: "no van", too_slow: "too slow", no_freezer: "no freezer", weak_cold: "fridge not cold enough", too_small: "not enough room", declined: "said no" };
+const QUESTIONS = [
+  "Who can take it and collect in time?",
+  "Why them and not the other pantry?",
+  "They said no. Who's next?",
+  "How long does it actually last?",
+  "Can they pick it up or do we need a driver?",
+  "Whose neighbourhood does this help?",
+  "Write the pickup message.",
+];
+// Lane 1's equity audit (GET /api/equity_audit), kept here for the standalone preview.
+const DEMO_EQUITY = { metro_baseline: { poverty_rate: 16.96, pct_no_vehicle: 21.89 }, matched_cohort: { poverty_rate: 16.39, pct_no_vehicle: 25.75 }, honest_take: "Our routing directs surplus to tracts with +3.86% higher transit-insecurity than the metro average. However, heavy bulk donations (e.g. 5 tons of potatoes) require loading docks, which naturally concentrate in industrial corridors." };
+// The intake conversation (Lane 2's agent/intake.py asks these; this is the scripted preview).
+const INTAKE = [
+  { q: "What kind of cold storage do you have?", key: "cold_storage", opts: [["None", "none"], ["A home fridge", "domestic"], ["A commercial fridge", "commercial"], ["A walk-in cooler", "walk-in"]] },
+  { q: "Can you take a pallet off a truck, or does food need to come in by hand through a regular door?", key: "max_pallets", opts: [["Pallets, we have a dock", 6], ["A pallet or two, no dock", 2], ["Hand-carry only", 0]] },
+  { q: "Do you have your own refrigerated van?", key: "refrigerated_transport", opts: [["Yes", true], ["No", false]] },
+  { q: "When something comes up, how fast can someone collect?", key: "pickup_window_hours", opts: [["Within 2 hours", 2], ["Within 4 hours", 4], ["Same day", 8], ["Next day", 24]] },
+];
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -335,7 +397,7 @@ const leftShort = ms => { if (ms <= 0) return "overdue"; const h = Math.floor(ms
 const leftLong = ms => { if (ms <= 0) return "0:00:00"; const h = Math.floor(ms / 3.6e6), m = Math.floor(ms % 3.6e6 / 6e4), s = Math.floor(ms % 6e4 / 1000); return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`; };
 const leftCls = (ms, stage) => stage === "delivered" ? "done" : ms <= 0 ? "bad" : ms < 3.6e6 ? "warn" : "";
 const foodWord = txt => { const t = (txt || "").toLowerCase(); return t.includes("spinach") || t.includes("greens") ? "greens" : t.includes("milk") || t.includes("yogurt") || t.includes("dairy") ? "dairy" : t.includes("tray") || t.includes("prepared") ? "prepared meals" : "this food"; };
-const coolerWord = c => ({ "walk-in": "Walk-in cooler", commercial: "Commercial fridge", domestic: "Home fridge", medical: "Medical fridge" }[c] || c);
+const coolerWord = c => ({ "walk-in": "Walk-in cooler", commercial: "Commercial fridge", domestic: "Home fridge", medical: "Medical fridge", vehicle: "Refrigerated vehicle", none: "No refrigerator" }[c] || c);
 const pallets = (qty, unit) => unit === "pallets" ? qty : (qty ? Math.max(1, Math.ceil(qty / 12)) : 0);
 
 function humanReason(d, offer) {
@@ -401,6 +463,7 @@ function demoResponse(req) {
   if (!base) return null;
   const d = JSON.parse(JSON.stringify(base));
   d.matches = (d.matches || []).filter(m => !no.includes(m.name.trim().toLowerCase()));
+  if (req.routing_policy === "logistics_first") d.matches.sort((a, b) => (b.max_pallets - a.max_pallets) || (a.pickup_window_hours - b.pickup_window_hours) || (a.distance_km - b.distance_km));
   d.matches.forEach((m, i) => { m.rank = i + 1; });
   d.posting_summary = { ...d.posting_summary, posting_text: req.posting_text, pallets_offered: req.pallets_offered, donor_deadline_hours: req.donor_deadline_hours };
   if (d.clock) { d.clock.donor_deadline_hours = req.donor_deadline_hours; d.clock.effective_window_hours = Math.min(req.donor_deadline_hours, d.clock.usda_shelf_life_hours || req.donor_deadline_hours); }
@@ -412,11 +475,17 @@ function demoResponse(req) {
    Real route first; a mock with data otherwise. A lane that builds the real thing swaps
    one function here and nothing else on the page changes.
 
-   api.match(req)                POST /api/match         exists   → MatchResponse (Contract 1)
+   api.match(req)                POST /api/match         exists   → MatchResponse (Contract 1; + routing_policy)
+   api.equity()                  GET  /api/equity_audit  exists   → { metro_baseline, matched_cohort, honest_take }
+   api.brief(req, question)      POST /api/brief         exists   → { answer, source }
    api.offers.list()             GET  /api/offers        mock     → Offer[]
    api.offers.create(offer)      POST /api/offers        mock     → Offer (with id)
    api.offers.update(id, patch)  PATCH /api/offers/{id}  mock     → Offer
    api.offers.reset(list)        demo only
+   api.intake.register(p)        POST /api/intake        mock     → { recipient_id, ...p }
+       p = { name_and_place, cold_storage, max_pallets, refrigerated_transport, pickup_window_hours, profile_text }
+   api.traffic(q)                GET  /api/traffic       mock     → { minutes, traffic: "light"|"moderate"|"heavy", source }
+       q = { from: {lat, lon}, to: {lat, lon}, distance_km, departAt }   (real one: a traffic-aware routing API)
 
    Offer = {
      id, createdAt, deadlineAt (ISO), donor (who called),
@@ -445,6 +514,30 @@ const api = {
       if (!raw) throw new Error("Couldn't reach the matcher");
     }
     return normalize(raw, req);
+  },
+  async equity() {
+    try { const res = await fetch("/api/equity_audit"); if (!res.ok) throw new Error(); const j = await res.json(); if (!j || !j.metro_baseline) throw new Error(); return j; }
+    catch { return DEMO_EQUITY; }
+  },
+  async brief(req, question) {
+    try {
+      const res = await fetch("/api/brief", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...req, question }) });
+      if (!res.ok) throw new Error(); const j = await res.json(); if (!j || !j.answer) throw new Error(); return j;
+    } catch { return null; }
+  },
+  async traffic(q) {
+    // Mock: Chicago surface-street pace by time of day. Swap for a traffic-aware routing call.
+    const d = new Date(q.departAt || Date.now()), t = d.getHours() + d.getMinutes() / 60;
+    const level = (t >= 7 && t < 10) || (t >= 15.5 && t < 19) ? "heavy" : (t >= 10 && t < 15.5) || (t >= 19 && t < 21) ? "moderate" : "light";
+    const perKm = { light: 2.2, moderate: 3.0, heavy: 4.2 }[level];
+    return { minutes: Math.max(4, Math.round((q.distance_km || 3) * perKm + 3)), traffic: level, source: "estimate" };
+  },
+  intake: {
+    async register(p) {
+      const rec = { recipient_id: "new-" + Date.now().toString(36), ...p };
+      try { const list = JSON.parse(localStorage.getItem("rescue.intake.v1") || "[]"); list.push(rec); localStorage.setItem("rescue.intake.v1", JSON.stringify(list)); } catch { /* keep in memory only */ }
+      return rec;
+    },
   },
   offers: {
     async list() { if (!mem) mem = store.read(); return mem; },
@@ -483,13 +576,15 @@ let unit = "crates", collects = "van";
 function go(hash) { if (location.hash === hash) render(); else location.hash = hash; }
 async function render() {
   const h = location.hash || "#board";
-  const which = h === "#new" ? "new" : /^#(o|ex)-/.test(h) ? "offer" : "board";
+  const which = h === "#new" ? "new" : h === "#intake" ? "intake" : /^#(o|ex)-/.test(h) ? "offer" : "board";
   $("screenBoard").hidden = which !== "board";
   $("screenNew").hidden = which !== "new";
+  $("screenIntake").hidden = which !== "intake";
   $("screenOffer").hidden = which !== "offer";
   $("newBtn").hidden = which === "new";
   if (which === "board") await renderBoard();
   else if (which === "new") renderNew();
+  else if (which === "intake") renderIntake();
   else await renderOffer(h.slice(1));
   await renderFoot();
 }
@@ -514,6 +609,15 @@ async function renderBoard() {
       </div></button>`;
   }).join("");
   el.querySelectorAll(".row").forEach(b => b.addEventListener("click", () => go("#" + b.dataset.id)));
+  el.insertAdjacentHTML("beforeend", `<section class="card" id="equityCard"><h2>Who it feeds, city-wide <small>10 test offers vs the Chicago average</small></h2><p class="hint"><span class="spin"></span>Loading…</p></section>`);
+  const e = await api.equity();
+  const card = $("equityCard"); if (!card) return;
+  const pct = n => Number(n).toFixed(1) + "%";
+  card.innerHTML = `<h2>Who it feeds, city-wide <small>10 test offers vs the Chicago average</small></h2>
+    <div class="audit">
+      <div><div class="k">Households without a car</div><div class="v num">${pct(e.matched_cohort.pct_no_vehicle)} <small>matched</small> vs ${pct(e.metro_baseline.pct_no_vehicle)} <small>city</small></div></div>
+      <div><div class="k">Poverty rate</div><div class="v num">${pct(e.matched_cohort.poverty_rate)} <small>matched</small> vs ${pct(e.metro_baseline.poverty_rate)} <small>city</small></div></div>
+    </div>${e.honest_take ? `<p class="hint" style="margin-top:8px">${esc(e.honest_take)}</p>` : ""}`;
 }
 
 function timeValue(d) { return `${String(d.getHours()).padStart(2, "0")}:${String(Math.floor(d.getMinutes() / 5) * 5).padStart(2, "0")}`; }
@@ -568,17 +672,20 @@ function stageLine(o) {
   const notes = o.declined.map(d => `${nice(d.name)} said no at ${fmtT(d.at)}.`).join(" ");
   return `<div class="stageline">${parts.join('<span class="arrow">›</span>')}${notes ? `<span class="note">${esc(notes)}</span>` : ""}</div>`;
 }
-function checks(m, o) {
+const TRAFFIC_WORD = { light: "light traffic", moderate: "some traffic", heavy: "heavy traffic" };
+function checks(m, o, tr) {
   const cold = m.cold_storage !== "none" && (!o.req.requires_frozen || m.frozen_storage);
   const van = !!m.refrigerated_transport;
   const mg = m.margin_hours;
   return `<span class="chk ${cold ? "good" : "bad"}">❄️ ${cold ? esc(coolerWord(m.cold_storage)) : "No refrigerator"}</span>
     <span class="chk ${van ? "good" : "warn"}">🚐 ${van ? "Own van, collects in " + hrs(m.pickup_window_hours) : "Needs a driver, " + hrs(m.pickup_window_hours) + " to load"}</span>
-    <span class="chk ${mg >= 1 ? "good" : mg >= 0 ? "warn" : "bad"}">⏱️ ${mg >= 0 ? hrs(mg) + " to spare" : "Too slow by " + hrs(-mg)}</span>`;
+    <span class="chk ${mg >= 1 ? "good" : mg >= 0 ? "warn" : "bad"}">⏱️ ${mg >= 0 ? hrs(mg) + " to spare" : "Too slow by " + hrs(-mg)}</span>
+    ${tr ? `<span class="chk ${tr.traffic === "heavy" ? "warn" : "good"}">🚦 ~${tr.minutes} min drive, ${TRAFFIC_WORD[tr.traffic]}</span>` : ""}`;
 }
-function driverText(o, top) {
-  return `Pickup needed: ${o.req.posting_text}. From ${o.donor || "the donor"} to ${nice(top.name)}, ${nice(top.street)} (${top.distance_km} km).${o.req.requires_cold_storage ? " Must stay cold." : ""} Needs to be there by ${fmtT(o.deadlineAt)}. Who can take it? Reply with your name.`;
+function driverText(o, top, tr) {
+  return `Pickup needed: ${o.req.posting_text}. From ${o.donor || "the donor"} to ${nice(top.name)}, ${nice(top.street)} (${top.distance_km} km${tr ? `, about ${tr.minutes} min in ${TRAFFIC_WORD[tr.traffic]}` : ""}).${o.req.requires_cold_storage ? " Must stay cold." : ""} Needs to be there by ${fmtT(o.deadlineAt)}. Who can take it? Reply with your name.`;
 }
+const driveQ = (o, m) => ({ from: { lat: o.req.donor_lat, lon: o.req.donor_lon }, to: { lat: m.lat, lon: m.lon }, distance_km: m.distance_km, departAt: Date.now() });
 function actionButtons(o, top) {
   const needsDriver = top && (!top.refrigerated_transport || !o.req.requires_pickup_van);
   switch (o.stage) {
@@ -610,6 +717,7 @@ async function renderOffer(id) {
     </div>
     ${stageLine(o)}
     ${r && r.clock && r.clock.usda_shelf_life_hours ? `<p class="hint" style="margin-top:8px">USDA says ${esc(r.clock.matched_usda_product)} keeps about ${r.clock.usda_shelf_life_hours} h in a fridge. The donor's deadline wins.</p>` : ""}
+    ${["new", "matched", "nobody"].includes(o.stage) ? `<div class="pol"><span>Rank by</span><div class="seg" id="policy"><button type="button" data-p="equity_weighted" aria-pressed="${(o.req.routing_policy || "equity_weighted") === "equity_weighted"}">🎯 Who needs it most</button><button type="button" data-p="logistics_first" aria-pressed="${o.req.routing_policy === "logistics_first"}">⚡ Biggest and fastest</button></div></div>` : ""}
   </section>`;
 
   if (o.stage === "new") {
@@ -622,14 +730,17 @@ async function renderOffer(id) {
     const waiting = o.stage !== "matched";
     const routeUrl = `https://www.google.com/maps/dir/?api=1&origin=${o.req.donor_lat},${o.req.donor_lon}&destination=${top.lat},${top.lon}`;
     const needsDriver = !top.refrigerated_transport || !o.req.requires_pickup_van;
+    const tr = await api.traffic(driveQ(o, top));
+    const btr = await Promise.all(backups.map(b => api.traffic(driveQ(o, b))));
     html += `<section class="card match ${waiting ? "waiting" : ""}">
       <div class="tag">${waiting ? STAGE_LABEL[o.stage] + (o.stamps[o.stage] ? " · " + fmtT(o.stamps[o.stage]) : "") : "#1 · They can take it"}</div>
       <h3>${esc(nice(top.name))}</h3>
       <div class="addr">${esc(nice(top.street))} · <b class="num">${top.distance_km} km</b> · <a href="${routeUrl}" target="_blank" rel="noopener">Route ↗</a></div>
-      <div class="checks">${checks(top, o)}</div>
-      <div class="feeds">Who it feeds: <b>${top.equity_context.poverty_rate}%</b> in poverty · <b>${top.equity_context.pct_no_vehicle}%</b> no car${esc(before(list, o, top.name))}</div>
+      <div class="checks">${checks(top, o, tr)}</div>
+      <div class="feeds">Who it feeds: <b>${top.equity_context.poverty_rate}%</b> in poverty · <b>${top.equity_context.pct_no_vehicle}%</b> no car${esc(before(list, o, top.name))}${top.equity_context.poverty_rate > 40 || top.equity_context.pct_no_vehicle > 50 ? ' <span class="chk high">High-need neighbourhood</span>' : ""}</div>
       <details class="msg"><summary><span>📱 Text message to send to the pantry</span><button class="copy" type="button" data-copy="draft">Copy</button></summary><pre id="draft">${esc(top.draft_message)}</pre></details>
-      ${needsDriver ? `<details class="msg"><summary><span>🚗 Text message to send to the drivers</span><button class="copy" type="button" data-copy="driverDraft">Copy</button></summary><pre id="driverDraft">${esc(driverText(o, top))}</pre></details>` : ""}
+      ${needsDriver ? `<details class="msg"><summary><span>🚗 Text message to send to the drivers</span><button class="copy" type="button" data-copy="driverDraft">Copy</button></summary><pre id="driverDraft">${esc(driverText(o, top, tr))}</pre></details>` : ""}
+      <details class="msg"><summary><span>💬 Ask the broker</span></summary><div class="ask" id="ask">${QUESTIONS.map((q, i) => `<button type="button" data-q="${i}">${q}</button>`).join("")}</div><div class="answer" id="answer"><span class="hint">Tap a question.</span></div></details>
       ${actionButtons(o, top)}
     </section>`;
     if (r.split_plan.length >= 2 && (o.stage === "matched" || o.split)) {
@@ -642,7 +753,7 @@ async function renderOffer(id) {
     }
     if (backups.length && o.stage !== "delivered") {
       html += `<section class="card list"><h2>They said no? Try next pantry</h2>
-        ${backups.map(b => `<div class="it"><div class="n num">#${b.rank}</div><div><div class="t">${esc(nice(b.name))}</div><div class="d">${esc(nice(b.street))} · ${b.distance_km} km · ${esc(coolerWord(b.cold_storage))}${b.refrigerated_transport ? " · own van" : " · needs a driver"}</div></div><div class="w num">collects in ${hrs(b.pickup_window_hours)}<br>${hrs(b.margin_hours)} to spare</div></div>`).join("")}
+        ${backups.map((b, i) => `<div class="it"><div class="n num">#${b.rank}</div><div><div class="t">${esc(nice(b.name))}</div><div class="d">${esc(nice(b.street))} · ${b.distance_km} km · ~${btr[i].minutes} min drive · ${esc(coolerWord(b.cold_storage))}${b.refrigerated_transport ? " · own van" : " · needs a driver"}</div></div><div class="w num">collects in ${hrs(b.pickup_window_hours)}<br>${hrs(b.margin_hours)} to spare</div></div>`).join("")}
       </section>`;
     }
   }
@@ -655,6 +766,8 @@ async function renderOffer(id) {
   $("stack").innerHTML = html;
   $("stack").scrollTop = 0;
   $("stack").querySelectorAll("[data-act]").forEach(b => b.addEventListener("click", () => act(b.dataset.act)));
+  const pol = $("policy"); if (pol) pol.addEventListener("click", e => { const b = e.target.closest("button"); if (b && b.dataset.p !== (o.req.routing_policy || "equity_weighted")) act("policy:" + b.dataset.p); });
+  const ask = $("ask"); if (ask) ask.addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; [...ask.children].forEach(x => x.setAttribute("aria-pressed", x === b ? "true" : "false")); askBroker(o, +b.dataset.q); });
   $("stack").querySelectorAll("[data-copy]").forEach(b => b.addEventListener("click", async e => {
     e.preventDefault(); e.stopPropagation();
     const text = $(b.dataset.copy).textContent;
@@ -673,6 +786,7 @@ async function act(a) {
     render(); runMatch({ ...o, declined }); return;
   }
   if (a === "driver-mode") { const req = { ...o.req, requires_pickup_van: false }; await api.offers.update(o.id, { req, stage: "new" }); render(); runMatch({ ...o, req }); return; }
+  if (a.startsWith("policy:")) { const req = { ...o.req, routing_policy: a.slice(7) }; await api.offers.update(o.id, { req, stage: "new" }); render(); runMatch({ ...o, req }); return; }
   if (a === "more-time") { const deadlineAt = new Date(new Date(o.deadlineAt).getTime() + 2 * 3.6e6).toISOString(); await api.offers.update(o.id, { deadlineAt, stage: "new" }); render(); runMatch({ ...o, deadlineAt }); return; }
   if (a === "drivers") { const d = $("stack").querySelector("#driverDraft"); if (d) d.closest("details").open = true; toast("Driver message is ready to copy."); return; }
   if (a === "split") { await api.offers.update(o.id, { stage: "sent", split: true, stamps: { ...o.stamps, sent: now } }); render(); return; }
@@ -682,10 +796,73 @@ async function renderFoot() {
   const list = await api.offers.list();
   const live = list.some(o => o.result && o.result.data_source === "bigquery_live");
   const ex = list.some(o => o.example);
-  $("foot").innerHTML = `<span>${live ? "Live: BigQuery vector search" : "🧪 Demo data"}</span><span>· pantry locations are ZIP centroids</span><span>· shelf life is USDA home guidance</span><span>· status is kept in this browser</span>${ex ? '<button class="link" type="button" id="clearEx">Clear examples</button>' : ""}<button class="link" type="button" id="resetBtn">Reset demo</button>`;
+  $("foot").innerHTML = `<span>${live ? "Live: BigQuery vector search" : "🧪 Demo data"}</span><span>· pantry locations are ZIP centroids</span><span>· shelf life is USDA home guidance</span><span>· status is kept in this browser</span><a class="link" href="#intake">Register a pantry</a>${ex ? '<button class="link" type="button" id="clearEx">Clear examples</button>' : ""}<button class="link" type="button" id="resetBtn">Reset demo</button>`;
   const c = $("clearEx"); if (c) c.addEventListener("click", async () => { await api.offers.reset(list.filter(o => !o.example)); render(); });
   $("resetBtn").addEventListener("click", async () => { await api.offers.reset(exampleOffers()); go("#board"); render(); });
 }
+/* Ask the broker: the seven coordinator questions. /api/brief answers when it can; otherwise the match result does. */
+async function askBroker(o, i) {
+  const box = $("answer"); if (!box) return;
+  box.innerHTML = `<span class="hint"><span class="spin"></span>Asking…</span>`;
+  const j = await api.brief(o.req, QUESTIONS[i]);
+  if (j) { box.innerHTML = esc(j.answer) + `<span class="src">Source: ${j.source === "gemini_adk" ? "Gemini via ADK" : "the broker's own checks"}</span>`; return; }
+  box.innerHTML = esc(templateAnswer(o, i)) + '<span class="src">Source: the match result</span>';
+}
+function templateAnswer(o, i) {
+  const d = o.result, t = d.matches[0], b = d.matches[1], c = d.clock, g = d.rejected_decoys[0];
+  if (!t) return "No pantry passes every check right now. See why we skipped them below.";
+  switch (i) {
+    case 0: return `${nice(t.name)}, ${nice(t.street)}. ${coolerWord(t.cold_storage)}, ${t.refrigerated_transport ? "their own van" : "needs a driver"}, collects within ${hrs(t.pickup_window_hours)} with ${hrs(t.margin_hours)} to spare.`;
+    case 1: return g ? `${nice(g.name)} ranked #${g.semantic_rank} on meaning, but ${humanReason(g, o.req.posting_text).replace(/^Why we skipped \w+: /, "")} ${nice(t.name)} passes every check and serves a neighbourhood where ${t.equity_context.poverty_rate}% live in poverty.` : `${nice(t.name)} passed every check.`;
+    case 2: return b ? `${nice(b.name)}, ${nice(b.street)}. ${coolerWord(b.cold_storage)}, ${b.refrigerated_transport ? "own van" : "needs a driver"}, collects within ${hrs(b.pickup_window_hours)}. Press "They said no" to move to them.` : "No backup left. Give it more time or send a driver.";
+    case 3: return c && c.usda_shelf_life_hours ? `USDA FoodKeeper lists ${c.matched_usda_product} at about ${c.usda_shelf_life_hours} h in a home fridge. That's consumer guidance, not cold-chain science, so the donor's deadline (${hrs(c.donor_deadline_hours)}) is the clock.` : `USDA has no clean number for this one, so the donor's deadline is the clock.`;
+    case 4: return t.refrigerated_transport && o.req.requires_pickup_van ? `${nice(t.name)} collects in their own refrigerated van. No driver needed.` : `${nice(t.name)} needs a driver. The driver message is ready above.`;
+    case 5: return `${nice(t.name)} sits in a census tract where ${t.equity_context.poverty_rate}% of people live in poverty and ${t.equity_context.pct_no_vehicle}% of households have no car.${b ? ` That is what broke the tie with ${nice(b.name)}.` : ""}`;
+    case 6: return t.draft_message;
+  }
+}
+
+/* Register a pantry: scripted intake (demo). The real agent is Lane 2's agent/intake.py. */
+let intake = null;
+function renderIntake() {
+  intake = { step: -1, answers: {}, text: "" };
+  $("chat").innerHTML = "";
+  say("agent", "Hi. Tell me about the pantry: its name, where it is, and what you hand out.");
+  $("intakeForm").hidden = false; $("intakeText").value = ""; setTimeout(() => $("intakeText").focus(), 50);
+}
+function say(who, text) { $("chat").insertAdjacentHTML("beforeend", `<div class="m ${who}">${esc(text)}</div>`); $("chat").lastElementChild.scrollIntoView({ block: "nearest" }); }
+function askNext() {
+  intake.step += 1;
+  const q = INTAKE[intake.step];
+  if (!q) return finishIntake();
+  say("agent", q.q);
+  $("chat").insertAdjacentHTML("beforeend", `<div class="opts">${q.opts.map(([label, v]) => `<button type="button" data-v="${esc(JSON.stringify(v))}">${label}</button>`).join("")}</div>`);
+  const opts = $("chat").lastElementChild;
+  opts.addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; intake.answers[q.key] = JSON.parse(b.dataset.v); opts.remove(); say("me", b.textContent); askNext(); });
+}
+async function finishIntake() {
+  const a = intake.answers;
+  const profile_text = `${intake.text.trim()} ${a.cold_storage === "none" ? "We have no refrigeration, so we can only take food that goes out the same day." : `We have ${coolerWord(a.cold_storage).toLowerCase()} on site.`} ${a.max_pallets === 0 ? "Everything comes in by hand through a regular door." : a.max_pallets >= 6 ? "We can take full pallets off a truck at our dock." : "We can take a pallet or two, but we have no dock."} ${a.refrigerated_transport ? "We have our own refrigerated van" : "We have no van"} and can usually collect within ${a.pickup_window_hours} hours.`;
+  const rec = await api.intake.register({ name_and_place: intake.text.trim(), ...a, profile_text });
+  say("agent", "Here's the profile I'll save. The next search can find you.");
+  $("chat").insertAdjacentHTML("beforeend", `<section class="card" style="justify-self:stretch"><div class="profile">
+    <span class="k">Cold storage</span><span class="v">${esc(coolerWord(a.cold_storage) === "none" ? "None" : coolerWord(a.cold_storage))}</span>
+    <span class="k">Pallets</span><span class="v">${a.max_pallets === 0 ? "Hand-carry only" : "Up to " + a.max_pallets}</span>
+    <span class="k">Own van</span><span class="v">${a.refrigerated_transport ? "Yes" : "No"}</span>
+    <span class="k">Collects within</span><span class="v">${hrs(a.pickup_window_hours)}</span>
+    <div class="full"><span class="k">Profile text (what the search reads)</span><pre>${esc(profile_text)}</pre></div>
+  </div><div class="actions" style="margin-top:10px"><a class="btn go" href="#board">✅ Saved · back to the board</a><button class="btn" type="button" id="intakeAgain">Register another</button></div>
+  <p class="hint" style="margin-top:8px">Saved in this browser for the demo (${esc(rec.recipient_id)}). Lane 2's intake agent writes this to BigQuery and embeds it.</p></section>`);
+  $("chat").lastElementChild.scrollIntoView({ block: "nearest" });
+  $("intakeAgain").addEventListener("click", renderIntake);
+}
+$("intakeForm").addEventListener("submit", e => {
+  e.preventDefault();
+  const t = $("intakeText").value.trim(); if (!t) { $("intakeText").focus(); return; }
+  intake.text = t; say("me", t); $("intakeForm").hidden = true; askNext();
+});
+$("intakeText").addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("intakeForm").requestSubmit(); } });
+
 function tickClocks() {
   document.querySelectorAll("[data-clock]").forEach(el => {
     if (el.dataset.stage === "delivered") return;
