@@ -1,0 +1,21 @@
+# Files `gcloud run deploy --source=.` must not upload.
+# The Dockerfile only needs requirements.txt, agent/, app/, sql/ and data/.
+
+.gcloudignore
+.git
+.gitignore
+.claude/
+
+# Local design references and notebooks (not part of the service)
+insignia-baseline-extracted/
+insignia-baseline.zip
+oddbunch_home.html
+notebooks/
+
+# Python build junk
+__pycache__/
+*.pyc
+.venv/
+
+# Also skip whatever git ignores (keeps .env and credentials out of Cloud Build)
+#!include:.gitignore
