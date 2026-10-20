@@ -1,0 +1,1238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RescueDispatch — Extra food, matched before the clock runs out</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230f1613'/%3E%3Ccircle cx='32' cy='32' r='14' fill='%2315803d'/%3E%3Ccircle cx='32' cy='32' r='6' fill='%23ffffff'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700&family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&display=swap">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+<style>
+/* Layout: Uber-style dispatch console. Left rail = the offer. Centre = map hero. Right = tabbed ride-style cards.
+   Built on docs/frontend_plan.md Contract 1 (/api/match), 2 (/api/brief) and 3 (/api/equity_audit). */
+:root {
+  --bg: #f3f5f2;
+  --surface: #ffffff;
+  --surface-2: #eef1ec;
+  --fg: #0f1613;
+  --muted: #5d6963;
+  --line: #dfe4e0;
+  --accent: #0f1613;
+  --on-accent: #ffffff;
+  --good: #15803d;
+  --good-soft: #dcfce7;
+  --warn: #b45309;
+  --warn-soft: #fef3c7;
+  --bad: #b91c1c;
+  --bad-soft: #fee2e2;
+  --donor: #1d4ed8;
+  --donor-soft: #dbeafe;
+  --map-bg: #e6eae5;
+  --tile-filter: saturate(0.55) contrast(0.95);
+  --font-display: "Sora", "Helvetica Neue", Arial, sans-serif;
+  --font-body: "DM Sans", "Helvetica Neue", Arial, sans-serif;
+  --radius: 14px;
+  --shadow: 0 10px 30px rgba(15, 22, 19, 0.08);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0b0f0d; --surface: #151b18; --surface-2: #1b2320; --fg: #f1f4f2; --muted: #96a29b; --line: #26312b;
+    --accent: #f1f4f2; --on-accent: #0b0f0d;
+    --good: #4ade80; --good-soft: #10351f; --warn: #fbbf24; --warn-soft: #3a2a08; --bad: #f87171; --bad-soft: #3f1515;
+    --donor: #60a5fa; --donor-soft: #0f2447;
+    --map-bg: #111614;
+    --tile-filter: invert(1) hue-rotate(180deg) brightness(0.8) contrast(0.9) saturate(0.4);
+    --shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0b0f0d; --surface: #151b18; --surface-2: #1b2320; --fg: #f1f4f2; --muted: #96a29b; --line: #26312b;
+  --accent: #f1f4f2; --on-accent: #0b0f0d;
+  --good: #4ade80; --good-soft: #10351f; --warn: #fbbf24; --warn-soft: #3a2a08; --bad: #f87171; --bad-soft: #3f1515;
+  --donor: #60a5fa; --donor-soft: #0f2447;
+  --map-bg: #111614;
+  --tile-filter: invert(1) hue-rotate(180deg) brightness(0.8) contrast(0.9) saturate(0.4);
+  --shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  color-scheme: dark;
+}
+
+html, body { height: 100%; margin: 0; }
+body {
+  background: var(--bg); color: var(--fg);
+  font-family: var(--font-body); font-size: 14px; line-height: 1.45;
+  padding: 12px 16px;
+  box-sizing: border-box;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+h1, h2, h3 { margin: 0; font-family: var(--font-display); text-wrap: balance; }
+button { font: inherit; cursor: pointer; }
+button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visible { outline: 2px solid var(--donor); outline-offset: 2px; }
+.num { font-variant-numeric: tabular-nums; }
+
+.app { display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 14px; height: 100%; min-height: 0; }
+header.top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.summary { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; }
+.summary .offer { font-size: 13px; color: var(--muted); max-width: 46ch; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.summary .offer b { color: var(--fg); font-weight: 600; }
+.brand { cursor: pointer; border-radius: 10px; }
+.summary .offer { cursor: pointer; }
+.summary .offer:hover { color: var(--fg); }
+
+/* Screen 1: the offer (opens here). Screen 2: results, tabs left + map right. */
+.screen-offer { min-height: 0; overflow: auto; display: grid; justify-items: center; align-content: start; padding-top: 2vh; }
+.onboard { width: min(1040px, 100%); display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 14px; align-items: start; }
+.onboard .hero { grid-column: 1 / -1; }
+.onboard .hero h2 { font-size: 26px; font-weight: 700; letter-spacing: -0.02em; }
+.onboard .hero p { margin: 4px 0 0; color: var(--muted); font-size: 14px; }
+.onboard .scenarios { grid-template-columns: 1fr; }
+.onboard .scenario { padding: 14px; }
+.onboard .scenario .t { font-size: 14px; }
+.onboard label.f textarea { font-size: 15px; padding: 12px; }
+.screen-results { display: grid; grid-template-columns: 440px minmax(0, 1fr); gap: 14px; min-height: 0; height: 100%; }
+.brand { display: flex; align-items: center; gap: 10px; }
+.brand .mark { width: 34px; height: 34px; border-radius: 10px; background: var(--accent); color: var(--on-accent); display: grid; place-items: center; font-family: var(--font-display); font-weight: 700; }
+.brand h1 { font-size: 18px; font-weight: 700; letter-spacing: -0.01em; }
+.brand p { margin: 0; color: var(--muted); font-size: 12px; }
+.chips { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.chip { font-size: 12px; padding: 6px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--muted); display: inline-flex; align-items: center; gap: 6px; }
+.chip b { color: var(--fg); font-weight: 600; }
+.chip.live { border-color: var(--good); color: var(--good); }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; display: inline-block; }
+
+.rail, .stack { min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 12px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; }
+.card h2 { font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.card h2 .step { font-size: 11px; color: var(--muted); font-weight: 500; letter-spacing: 0.04em; text-transform: uppercase; }
+.sub { color: var(--muted); font-size: 12px; margin: 2px 0 10px; }
+
+.scenarios { display: grid; gap: 8px; }
+.scenario { text-align: left; background: var(--surface-2); border: 1px solid transparent; border-radius: 10px; padding: 10px 12px; color: var(--fg); display: grid; gap: 2px; }
+.scenario:hover { border-color: var(--line); }
+.scenario[aria-pressed="true"] { border-color: var(--accent); background: var(--surface); }
+.scenario .t { font-weight: 600; font-size: 13px; }
+.scenario .d { font-size: 11.5px; color: var(--muted); }
+label.f { display: grid; gap: 4px; font-size: 12px; font-weight: 500; color: var(--muted); }
+label.f input, label.f textarea { width: 100%; font: inherit; font-size: 13.5px; color: var(--fg); background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px; padding: 9px 10px; }
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.check { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.check input { width: 16px; height: 16px; accent-color: var(--good); }
+.primary { width: 100%; border: 0; border-radius: 12px; padding: 13px 14px; background: var(--accent); color: var(--on-accent); font-weight: 600; font-size: 14.5px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+.primary:hover { filter: brightness(1.12); }
+.primary[disabled] { opacity: 0.6; cursor: wait; }
+.form { display: grid; gap: 10px; }
+
+.mapwrap { position: relative; min-height: 0; border-radius: var(--radius); overflow: hidden; border: 1px solid var(--line); background: var(--map-bg); min-width: 0; }
+#map { position: absolute; inset: 0; z-index: 1; background: var(--map-bg); }
+.leaflet-container { font-family: var(--font-body); }
+.leaflet-tile-pane { filter: var(--tile-filter); }
+.leaflet-popup-content-wrapper { background: var(--surface); color: var(--fg); border-radius: 10px; box-shadow: var(--shadow); font-size: 12.5px; }
+.leaflet-popup-content { margin: 10px 12px; line-height: 1.4; }
+.leaflet-popup-content b { display: block; font-weight: 600; }
+.leaflet-popup-tip { background: var(--surface); }
+.leaflet-control-attribution { font-size: 10px; background: color-mix(in srgb, var(--surface) 80%, transparent); color: var(--muted); }
+.leaflet-control-attribution a { color: var(--muted); }
+.leaflet-bar a { background: var(--surface); color: var(--fg); border-bottom-color: var(--line); }
+.pin { width: 26px; height: 26px; border-radius: 50%; border: 3px solid var(--surface); display: grid; place-items: center; font-weight: 700; font-size: 11px; color: #ffffff; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35); font-family: var(--font-body); }
+.pin-good { background: var(--good); width: 32px; height: 32px; font-size: 13px; }
+.pin-warn { background: var(--warn); }
+.pin-bad { background: var(--bad); }
+.pin-donor { background: var(--donor); font-size: 14px; }
+.pin-van { width: 32px; height: 32px; background: var(--surface); border: 2px solid var(--accent); font-size: 16px; box-shadow: 0 3px 10px rgba(0,0,0,0.4); }
+.pin-wrap { position: relative; display: grid; place-items: center; }
+.pin-wrap .ring { position: absolute; width: 60px; height: 60px; border-radius: 50%; background: var(--good); opacity: 0.18; animation: pulse 1.8s ease-out infinite; }
+@keyframes pulse { 0% { transform: scale(0.5); opacity: 0.35; } 100% { transform: scale(1.1); opacity: 0; } }
+.legend { position: absolute; left: 12px; bottom: 12px; z-index: 2; display: flex; gap: 10px; flex-wrap: wrap; font-size: 11.5px; background: color-mix(in srgb, var(--surface) 88%, transparent); border: 1px solid var(--line); border-radius: 999px; padding: 6px 10px; backdrop-filter: blur(6px); }
+.legend span { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); }
+.legend i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.clock { position: absolute; top: 12px; left: 12px; z-index: 2; background: color-mix(in srgb, var(--surface) 92%, transparent); border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; backdrop-filter: blur(6px); box-shadow: var(--shadow); min-width: 200px; }
+.clock .k { font-size: 11px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+.clock .v { font-family: var(--font-display); font-size: 28px; font-weight: 600; line-height: 1.1; letter-spacing: -0.01em; }
+.clock .by { font-size: 12px; color: var(--muted); }
+
+.tabs { position: sticky; top: 0; z-index: 2; background: var(--bg); padding-bottom: 6px; }
+.seg { display: flex; gap: 4px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 999px; padding: 4px; overflow-x: auto; scrollbar-width: none; box-shadow: var(--shadow); }
+.tab { flex: 1 0 auto; border: 0; background: transparent; color: var(--muted); border-radius: 999px; padding: 9px 12px; font-size: 13px; font-weight: 600; white-space: nowrap; }
+.tab:hover { color: var(--fg); }
+.tab[aria-selected="true"] { background: var(--accent); color: var(--on-accent); }
+.panel { display: grid; gap: 12px; }
+
+.match { border: 2px solid var(--good); padding: 16px; }
+.match .tag { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--good); }
+.match h3 { font-size: 20px; font-weight: 700; margin-top: 6px; letter-spacing: -0.01em; }
+.addr { color: var(--muted); font-size: 13px; margin-top: 2px; }
+.addr b { color: var(--fg); font-weight: 600; }
+.addr a { color: var(--donor); font-weight: 600; text-decoration: none; }
+.addr a:hover { text-decoration: underline; }
+.lights { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+.light { display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: center; padding: 9px 10px; border-radius: 10px; background: var(--surface-2); }
+.light .ico { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; font-size: 15px; }
+.light.good .ico { background: var(--good-soft); } .light.warn .ico { background: var(--warn-soft); } .light.bad .ico { background: var(--bad-soft); } .light.info .ico { background: var(--donor-soft); }
+.light .q { font-size: 11px; color: var(--muted); }
+.light .a { font-size: 13px; font-weight: 600; }
+.light.good .a { color: var(--good); } .light.warn .a { color: var(--warn); } .light.bad .a { color: var(--bad); }
+.msg { margin-top: 12px; }
+.msg .k { font-size: 11px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); font-weight: 600; display: flex; justify-content: space-between; align-items: center; }
+.msg pre { margin: 6px 0 0; white-space: pre-wrap; font: inherit; font-size: 13px; background: var(--surface-2); border: 1px dashed var(--line); border-radius: 10px; padding: 10px 12px; }
+.copy { font-size: 11px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); border-radius: 999px; padding: 3px 9px; }
+.actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+.btn { border-radius: 10px; padding: 11px 12px; font-weight: 600; font-size: 13px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); display: inline-flex; align-items: center; justify-content: center; gap: 6px; text-decoration: none; }
+.btn.go { background: var(--good); border-color: var(--good); color: #ffffff; }
+.btn.no { border-color: var(--bad); color: var(--bad); }
+.btn:hover { filter: brightness(1.05); }
+
+/* Driver & Audio additions inside Match Card */
+.match-audio-row { display: flex; gap: 8px; margin-top: 10px; }
+.btn.audio-btn { flex: 1; font-size: 12px; padding: 8px 10px; background: var(--surface-2); border-color: var(--line); }
+.btn.audio-btn:hover { border-color: var(--fg); }
+.driver-card { margin-top: 12px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; display: grid; gap: 6px; }
+.driver-top { display: flex; align-items: center; justify-content: space-between; }
+.driver-tag { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 700; }
+.driver-tag.ready { color: var(--donor); }
+.driver-tag.enroute { color: var(--good); }
+.driver-info { font-size: 12px; color: var(--muted); }
+.driver-info b { color: var(--fg); }
+
+.backup { display: grid; grid-template-columns: 28px 1fr auto; gap: 10px; align-items: center; padding: 10px 0; border-top: 1px solid var(--line); }
+.backup:first-of-type { border-top: 0; }
+.backup .n { width: 28px; height: 28px; border-radius: 50%; background: var(--warn-soft); color: var(--warn); display: grid; place-items: center; font-weight: 700; font-size: 12px; }
+.backup .t { font-weight: 600; font-size: 13px; }
+.backup .d { font-size: 12px; color: var(--muted); }
+.backup .w { font-size: 12px; color: var(--muted); text-align: right; white-space: nowrap; }
+
+.skip { display: grid; grid-template-columns: auto 1fr; gap: 10px; padding: 10px 0; border-top: 1px solid var(--line); }
+.skip:first-of-type { border-top: 0; }
+.skip .x { width: 28px; height: 28px; border-radius: 50%; background: var(--bad-soft); color: var(--bad); display: grid; place-items: center; font-weight: 700; }
+.skip .t { font-weight: 600; font-size: 13px; }
+.skip .d { font-size: 12.5px; }
+.skip .r { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+
+.ask { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+.ask button { font-size: 12px; padding: 6px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface-2); color: var(--fg); }
+.ask button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+.answer { margin-top: 10px; font-size: 13px; background: var(--surface-2); border-radius: 10px; padding: 10px 12px; min-height: 42px; white-space: pre-wrap; }
+.answer .src { display: block; font-size: 11px; color: var(--muted); margin-top: 4px; white-space: normal; }
+
+/* Voice Agent Widget */
+.voice-broker-box { background: var(--surface-2); border: 1px solid var(--line); border-radius: 12px; padding: 12px; margin-top: 12px; display: grid; gap: 8px; }
+.voice-broker-head { display: flex; align-items: center; justify-content: space-between; }
+.voice-broker-title { font-size: 12.5px; font-weight: 700; display: flex; align-items: center; gap: 6px; }
+.soundbars { display: inline-flex; align-items: center; gap: 3px; height: 16px; }
+.soundbar { width: 3px; height: 4px; background: var(--muted); border-radius: 2px; transition: height .1s; }
+.soundbars.active .soundbar { background: var(--good); }
+.soundbars.active .soundbar:nth-child(1) { animation: sbar 0.5s infinite alternate ease-in-out; }
+.soundbars.active .soundbar:nth-child(2) { animation: sbar 0.4s infinite alternate ease-in-out 0.15s; }
+.soundbars.active .soundbar:nth-child(3) { animation: sbar 0.7s infinite alternate ease-in-out 0.3s; }
+.soundbars.active .soundbar:nth-child(4) { animation: sbar 0.6s infinite alternate ease-in-out 0.1s; }
+@keyframes sbar { 0% { height: 4px; } 100% { height: 16px; } }
+.voice-status-txt { font-size: 11.5px; color: var(--muted); }
+.voice-mic-btn { border-radius: 10px; padding: 9px 12px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); font-size: 12.5px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.voice-mic-btn.listening { background: var(--bad-soft); border-color: var(--bad); color: var(--bad); animation: micPulse 1.2s infinite; }
+@keyframes micPulse { 0% { transform: scale(1); } 50% { transform: scale(1.04); } 100% { transform: scale(1); } }
+.voice-chip { cursor: pointer; border-color: var(--line); }
+.voice-chip:hover { border-color: var(--fg); color: var(--fg); }
+.voice-chip.active { border-color: var(--good); background: var(--good-soft); color: var(--good); }
+
+.honest { font-size: 12px; color: var(--muted); display: grid; gap: 6px; }
+.honest b { color: var(--fg); font-weight: 600; }
+.audit { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 4px; }
+.audit div { background: var(--surface-2); border-radius: 10px; padding: 8px 10px; }
+.audit .k { font-size: 11px; color: var(--muted); }
+.audit .v { font-family: var(--font-display); font-size: 16px; font-weight: 600; }
+.audit .v small { font-size: 11px; color: var(--muted); font-weight: 500; font-family: var(--font-body); }
+
+.toast { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 1200; background: var(--accent); color: var(--on-accent); padding: 10px 18px; border-radius: 999px; font-size: 13px; font-weight: 500; box-shadow: var(--shadow); opacity: 0; transition: opacity .2s; pointer-events: none; text-align: center; max-width: 90vw; }
+.toast.show { opacity: 1; }
+.empty { color: var(--muted); font-size: 13px; }
+.spin { display: inline-block; width: 18px; height: 18px; border: 2px solid var(--line); border-top-color: var(--fg); border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: middle; margin-right: 8px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.error { border-color: var(--bad); }
+.error b { color: var(--bad); }
+
+/* ---------------------------------------------------------------
+   Interactive Smartphone Simulator Modal ("The Other Side")
+---------------------------------------------------------------- */
+.phone-backdrop {
+  position: fixed; inset: 0; z-index: 1000;
+  background: rgba(11, 15, 13, 0.72); backdrop-filter: blur(8px);
+  display: flex; align-items: center; justify-content: center;
+  padding: 14px; opacity: 0; pointer-events: none; transition: opacity .25s ease;
+}
+.phone-backdrop.open { opacity: 1; pointer-events: auto; }
+.phone-device {
+  width: 100%; max-width: 392px; height: min(740px, 94vh);
+  background: var(--surface); color: var(--fg);
+  border: 8px solid #1a221e; border-radius: 42px;
+  box-shadow: 0 25px 70px rgba(0, 0, 0, 0.55), inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+  display: flex; flex-direction: column; overflow: hidden; position: relative;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+  transform: translateY(22px) scale(0.96); transition: transform .25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.phone-backdrop.open .phone-device { transform: translateY(0) scale(1); }
+.phone-notch {
+  width: 110px; height: 24px; background: #1a221e; border-radius: 20px;
+  margin: 6px auto 0; display: flex; align-items: center; justify-content: space-around;
+  padding: 0 14px; z-index: 10;
+}
+.phone-cam { width: 9px; height: 9px; border-radius: 50%; background: #0c100e; display: inline-block; }
+.phone-speaker { width: 42px; height: 4px; border-radius: 3px; background: #2f3833; display: inline-block; }
+.phone-status-bar {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 4px 18px 4px; font-size: 11.5px; font-weight: 600; color: var(--muted);
+}
+.phone-icons { display: flex; align-items: center; gap: 5px; font-size: 11px; }
+.phone-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 14px; border-bottom: 1px solid var(--line); background: var(--surface);
+}
+.phone-back-btn {
+  background: none; border: none; color: var(--donor); font-size: 13px; font-weight: 600; padding: 4px 6px; border-radius: 6px; cursor: pointer;
+}
+.phone-contact { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.phone-avatar { width: 34px; height: 34px; border-radius: 50%; background: var(--surface-2); display: grid; place-items: center; font-size: 16px; border: 1px solid var(--line); flex-shrink: 0; }
+.phone-contact-info { min-width: 0; text-align: left; }
+.phone-contact-name { font-size: 13px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 175px; }
+.phone-contact-sub { font-size: 10.5px; color: var(--muted); white-space: nowrap; }
+.phone-close-x { background: var(--surface-2); border: 1px solid var(--line); color: var(--muted); width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; cursor: pointer; }
+.phone-sim-badge {
+  background: var(--good-soft); color: var(--good); font-size: 10px; font-weight: 700;
+  letter-spacing: 0.05em; text-align: center; padding: 4px 10px; border-bottom: 1px solid color-mix(in srgb, var(--good) 20%, transparent);
+}
+.phone-chat-body {
+  flex: 1; overflow-y: auto; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; background: var(--surface-2);
+}
+.phone-date-divider { text-align: center; font-size: 10.5px; color: var(--muted); font-weight: 600; margin: 4px 0; }
+.sms-bubble { max-width: 88%; padding: 10px 12px; border-radius: 16px; font-size: 12.5px; line-height: 1.42; position: relative; }
+.sms-bubble.incoming {
+  align-self: flex-start; background: var(--surface); color: var(--fg);
+  border: 1px solid var(--line); border-bottom-left-radius: 4px; box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+}
+.sms-bubble.incoming .sms-sender { font-size: 10px; font-weight: 700; color: var(--donor); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.03em; }
+.sms-bubble.incoming.broker-bot { border-color: var(--good); background: color-mix(in srgb, var(--good-soft) 25%, var(--surface)); }
+.sms-bubble.incoming.broker-bot .sms-sender { color: var(--good); }
+.sms-bubble.outgoing {
+  align-self: flex-end; background: #007aff; color: #ffffff;
+  border-bottom-right-radius: 4px; box-shadow: 0 1px 4px rgba(0,0,0,0.12);
+}
+.sms-bubble.outgoing.decline-out { background: #b91c1c; }
+.sms-bubble .sms-time { font-size: 9.5px; opacity: 0.7; margin-top: 4px; text-align: right; }
+.phone-action-sheet {
+  background: var(--surface); border-top: 1px solid var(--line); padding: 10px 14px; display: grid; gap: 8px;
+}
+.phone-sheet-title { font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.phone-btn-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.phone-btn {
+  border: none; border-radius: 10px; padding: 10px 8px; font-size: 12.5px; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 5px;
+}
+.phone-btn.accept { background: var(--good); color: #fff; }
+.phone-btn.accept:hover { filter: brightness(1.1); }
+.phone-btn.decline { background: var(--bad-soft); color: var(--bad); border: 1px solid var(--bad); }
+.phone-btn.decline:hover { background: var(--bad); color: #fff; }
+.phone-decline-chips { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.phone-chip-hint { font-size: 10.5px; color: var(--muted); }
+.phone-chip {
+  background: var(--surface-2); border: 1px solid var(--line); color: var(--fg);
+  font-size: 10.5px; padding: 3px 8px; border-radius: 999px; cursor: pointer;
+}
+.phone-chip:hover { border-color: var(--bad); color: var(--bad); }
+.phone-input-bar {
+  display: flex; gap: 6px; padding: 8px 14px; background: var(--surface); border-top: 1px solid var(--line); align-items: center;
+}
+.phone-input-bar input {
+  flex: 1; border: 1px solid var(--line); border-radius: 999px; padding: 7px 12px; font-size: 12px; background: var(--surface-2); color: var(--fg);
+}
+.phone-input-bar button {
+  width: 28px; height: 28px; border-radius: 50%; background: #007aff; color: #fff; border: none; font-weight: bold; cursor: pointer; display: grid; place-items: center; font-size: 14px;
+}
+.phone-home-indicator {
+  width: 120px; height: 4px; background: var(--line); border-radius: 999px; margin: 4px auto 6px;
+}
+
+@media (max-width: 1000px) {
+  html, body { height: auto; }
+  .app { height: auto; }
+  .screen-results { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(340px, 48vh) auto; height: auto; }
+  .mapwrap { order: -1; min-height: 340px; }
+  .stack { overflow: visible; }
+}
+@media (max-width: 760px) {
+  .onboard { grid-template-columns: minmax(0, 1fr); }
+  .onboard .hero h2 { font-size: 22px; }
+  .mapwrap { min-height: 300px; }
+  .lights, .actions, .audit { grid-template-columns: 1fr; }
+  .clock .v { font-size: 22px; }
+  .summary .offer { max-width: 100%; white-space: normal; }
+}
+@media (prefers-reduced-motion: reduce) { .toast { transition: none; } .pin-wrap .ring { animation: none; opacity: 0.18; transform: none; } }
+</style>
+</head>
+<body>
+
+<div class="app" id="app">
+  <header class="top">
+    <div class="brand" id="brand" role="button" tabindex="0" title="Back to the offer">
+      <div class="mark">R</div>
+      <div>
+        <h1>RescueDispatch</h1>
+      </div>
+    </div>
+    <div class="summary" id="summary" hidden>
+      <span class="offer" id="offerSummary"></span>
+    </div>
+    <div class="chips">
+      <span class="chip">📍 <b>Chicago</b> · 183 pantries</span>
+      <span class="chip" id="srcChip">🧪 <b>Demo data</b></span>
+      <button class="chip voice-chip" id="voiceToggleBtn" type="button" title="Voice Broker Assistant">🎙️ <b>Voice Broker</b></button>
+    </div>
+  </header>
+
+  <!-- Screen 1: We have extra food -->
+  <section class="screen-offer" id="screenOffer">
+   <div class="onboard">
+    <div class="hero">
+      <h2>We have extra food</h2>
+      <p>Tell us what needs to go and how long it has. We'll find who can take it, keep it cold, and pick it up in time.</p>
+    </div>
+    <section class="card">
+      <h2><span class="step">Quick calls</span></h2>
+      <p class="sub">One tap starts the search.</p>
+      <div class="scenarios" id="scenarios">
+        <button class="scenario" type="button" data-id="spinach" aria-pressed="true">
+          <span class="t">🥬 Grocer spinach call</span>
+          <span class="d">10 crates · needs to go in 6 h · must stay cold</span>
+        </button>
+        <button class="scenario" type="button" data-id="trays" aria-pressed="false">
+          <span class="t">🍗 Catering meal trays</span>
+          <span class="d">40 lb chicken and rice · needs to go tonight (4 h)</span>
+        </button>
+        <button class="scenario" type="button" data-id="dairy" aria-pressed="false">
+          <span class="t">🥛 Milk and yogurt crates</span>
+          <span class="d">2 pallets · 8 h · needs a proper fridge</span>
+        </button>
+      </div>
+    </section>
+
+    <section class="card form">
+      <label class="f">What is the food?
+        <textarea id="posting_text" rows="3">10 crates of fresh spinach, harvested yesterday, needs cold storage</textarea>
+      </label>
+      <div class="row2">
+        <label class="f">How much (pallets)
+          <input id="pallets" type="number" min="1" max="20" value="1">
+        </label>
+        <label class="f">Needs to go by (hours)
+          <input id="hours" type="number" min="1" max="72" value="6">
+        </label>
+      </div>
+      <label class="check"><input id="req_cold" type="checkbox" checked> ❄️ Must stay cold</label>
+      <label class="check"><input id="req_van" type="checkbox" checked> 🚐 Pantry picks it up in their own van</label>
+      <button class="primary" type="button" id="findBtn">🔍 Find who can take it</button>
+    </section>
+   </div>
+  </section>
+
+  <!-- Screen 2: who can take it. Tabs left, map right. -->
+  <section class="screen-results" id="screenResults" hidden>
+    <main class="stack" id="stack">
+      <section class="card"><p class="empty"><span class="spin"></span>Finding who can take it…</p></section>
+    </main>
+
+    <section class="mapwrap" aria-label="Chicago rescue map">
+      <div id="map"></div>
+      <div class="clock">
+        <div class="k">⏱️ Time left on the clock</div>
+        <div class="v num" id="clockV">—</div>
+        <div class="by" id="clockBy">Waiting for an offer</div>
+      </div>
+      <div class="legend">
+        <span><i style="background: var(--donor)"></i> Pickup dock</span>
+        <span><i style="background: var(--good)"></i> #1 can take it</span>
+        <span><i style="background: var(--warn)"></i> Backups</span>
+        <span><i style="background: var(--bad)"></i> Skipped</span>
+      </div>
+    </section>
+  </section>
+</div>
+
+<!-- Interactive Smartphone Simulator Modal ("The Other Side of the Story") -->
+<div class="phone-backdrop" id="phoneBackdrop">
+  <div class="phone-device" id="phoneDevice">
+    <div class="phone-notch"><span class="phone-cam"></span><span class="phone-speaker"></span></div>
+    
+    <!-- Phone Top Status Bar -->
+    <div class="phone-status-bar">
+      <span class="phone-time" id="phoneTime">1:42</span>
+      <div class="phone-icons">
+        <span>5G</span>
+        <span>📶</span>
+        <span>98% 🔋</span>
+      </div>
+    </div>
+    
+    <!-- Phone Chat Header -->
+    <div class="phone-header">
+      <button class="phone-back-btn" id="phoneCloseBtn" type="button" title="Close simulation">‹ Console</button>
+      <div class="phone-contact">
+        <div class="phone-avatar">🏢</div>
+        <div class="phone-contact-info">
+          <div class="phone-contact-name" id="phonePantryName">Cedar Street Produce Alliance</div>
+          <div class="phone-contact-sub" id="phoneContactSub">📱 Coordinator Phone · SMS Dispatch</div>
+        </div>
+      </div>
+      <button class="phone-close-x" id="phoneCloseX" type="button" aria-label="Close">✕</button>
+    </div>
+
+    <!-- Live Simulation Banner -->
+    <div class="phone-sim-badge">
+      <span>● LIVE SIMULATION: PANTRY COORDINATOR PHONE</span>
+    </div>
+
+    <!-- SMS Conversation Body -->
+    <div class="phone-chat-body" id="phoneChatBody">
+      <div class="phone-date-divider" id="phoneDateDivider">Today · Just Now</div>
+      <div class="sms-bubble incoming" id="smsIncoming">
+        <div class="sms-sender">🤖 Food Equity Broker (312-555-RESCUE)</div>
+        <div class="sms-text" id="smsIncomingText">
+          Loading incoming alert...
+        </div>
+        <div class="sms-time" id="smsIncomingTime">1:42 PM</div>
+      </div>
+    </div>
+
+    <!-- Coordinator Action Buttons: Accept vs Decline -->
+    <div class="phone-action-sheet" id="phoneActionSheet">
+      <div class="phone-sheet-title">Coordinator Action: Reply to Broker</div>
+      
+      <div class="phone-btn-row">
+        <button class="phone-btn accept" id="phoneAcceptBtn" type="button">
+          ✅ Reply ACCEPT (Dispatch Van)
+        </button>
+        <button class="phone-btn decline" id="phoneDeclineBtn" type="button">
+          ❌ Reply DECLINE (Cannot Take)
+        </button>
+      </div>
+
+      <div class="phone-decline-chips" id="phoneDeclineChips">
+        <span class="phone-chip-hint">Quick decline reason:</span>
+        <button class="phone-chip" type="button" data-reason="Cooler at full capacity">🧊 Cooler full</button>
+        <button class="phone-chip" type="button" data-reason="Van in maintenance">🚐 Van unavailable</button>
+        <button class="phone-chip" type="button" data-reason="Volunteers unavailable today">🕒 Short staffed</button>
+      </div>
+    </div>
+
+    <!-- Simulated Message Input Bar -->
+    <div class="phone-input-bar">
+      <input type="text" id="phoneCustomInput" placeholder="Reply to broker (e.g. ACCEPT, DECLINE)..." />
+      <button type="button" id="phoneSendCustom" title="Send SMS">↑</button>
+    </div>
+    
+    <div class="phone-home-indicator"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+/* ---------------------------------------------------------------
+   Reads ONLY contract fields (docs/frontend_plan.md).
+   /api/match is required. /api/brief and /api/equity_audit are optional
+   (Track B); the page falls back to plain template text without them.
+---------------------------------------------------------------- */
+const DONOR = { lat: 41.8781, lon: -87.6298 };   // downtown Chicago pickup dock
+const SCENARIOS = {
+  spinach: { text: "10 crates of fresh spinach, harvested yesterday, needs cold storage", pallets: 1, hours: 6, cold: true, van: true },
+  trays: { text: "40 lbs prepared hot/chilled chicken & rice trays from catering, must move tonight", pallets: 1, hours: 4, cold: true, van: true },
+  dairy: { text: "60 gallons of milk and mixed yogurt crates, 2 days to date code", pallets: 2, hours: 8, cold: true, van: true },
+};
+const QUESTIONS = [
+  "Who can take it and collect in time?",
+  "Why them and not the other pantry?",
+  "They said no. Who's next?",
+  "How long does it actually last?",
+  "Can they pick it up or do we need a driver?",
+  "Whose neighbourhood does this help?",
+  "Write the pickup message.",
+];
+let declined = [];
+let activeTab = "match";
+let data = null;
+let clockEnd = null;
+let lastReq = null;
+let equity = null;
+let driverStatus = "ready"; // "ready" | "enroute"
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const hrs = h => (Number.isInteger(h) ? h : Number(h).toFixed(1)) + " h";
+const foodWord = txt => { const t = (txt || "").toLowerCase(); return t.includes("spinach") || t.includes("greens") ? "greens" : t.includes("milk") || t.includes("yogurt") ? "dairy" : t.includes("tray") || t.includes("prepared") ? "prepared meals" : "this food"; };
+
+function humanReason(d, offer) {
+  const short = d.name.split(" ")[0];
+  switch (d.reason_code) {
+    case "no_cold_storage": return `Why we skipped ${short}: wants ${foodWord(offer)}, but has no refrigerator.`;
+    case "contradiction": return `Why we skipped ${short}: their profile says walk-in freezer and single cupboard shelf. We don't trust it yet.`;
+    case "too_slow": return `Why we skipped ${short}: they need longer to collect than the clock allows.`;
+    case "no_vehicle": return `Why we skipped ${short}: no van to pick it up.`;
+    case "no_freezer": return `Why we skipped ${short}: no freezer.`;
+    case "declined": return `${short} said no. Moved to the next pantry.`;
+    default: return `Why we skipped ${short}.`;
+  }
+}
+function readForm() {
+  return { posting_text: $("posting_text").value.trim(), pallets_offered: parseInt($("pallets").value || "1", 10), donor_deadline_hours: parseFloat($("hours").value || "6"),
+    requires_cold_storage: $("req_cold").checked, requires_frozen: false, requires_pickup_van: $("req_van").checked, donor_lat: DONOR.lat, donor_lon: DONOR.lon, declined_recipient_names: declined };
+}
+function showScreen(name) {
+  const results = name === "results";
+  $("screenOffer").hidden = results;
+  $("screenResults").hidden = !results;
+  $("summary").hidden = !results;
+  $("app").dataset.screen = name;
+  if (results) { initMap(); setTimeout(() => map && map.invalidateSize(), 60); }
+}
+function summarize(req) {
+  const bits = [`<b>${esc(req.posting_text)}</b>`, `${req.pallets_offered} pallet${req.pallets_offered > 1 ? "s" : ""}`, `needs to go in ${hrs(req.donor_deadline_hours)}`];
+  if (req.requires_cold_storage) bits.push("❄️ keep it cold");
+  if (req.requires_pickup_van) bits.push("🚐 they pick up");
+  $("offerSummary").innerHTML = bits.join(" · ");
+}
+async function run() {
+  lastReq = readForm();
+  if (!lastReq.posting_text) { $("posting_text").focus(); toast("Tell us what the food is first."); return; }
+  summarize(lastReq);
+  showScreen("results");
+  $("findBtn").disabled = true;
+  driverStatus = "ready";
+  $("stack").innerHTML = `<section class="card"><p class="empty"><span class="spin"></span>Checking who can keep it cold, pick it up, and get there in time…</p></section>`;
+  try {
+    const res = await fetch("/api/match", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(lastReq) });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    data = await res.json();
+  } catch (err) {
+    $("stack").innerHTML = `<section class="card error"><b>Couldn't reach the matcher.</b><p class="empty">${esc(err.message)}. Check the server is running, then press "Find who can take it" again.</p></section>`;
+    $("findBtn").disabled = false;
+    return;
+  }
+  $("findBtn").disabled = false;
+  clockEnd = Date.now() + data.clock.effective_window_hours * 3600 * 1000;
+  const live = data.data_source === "bigquery_live";
+  $("srcChip").innerHTML = live ? '<span class="dot"></span> <b>Live</b> BigQuery vector search' : '🧪 <b>Demo data</b>';
+  $("srcChip").classList.toggle("live", live);
+  renderStack(data);
+  drawMap(data);
+  tickClock();
+}
+function tickClock() {
+  if (!clockEnd) return;
+  const left = Math.max(0, clockEnd - Date.now());
+  const h = Math.floor(left / 3.6e6), m = Math.floor(left % 3.6e6 / 6e4), s = Math.floor(left % 6e4 / 1000);
+  $("clockV").textContent = `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  $("clockBy").textContent = "Needs to go by " + new Date(clockEnd).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }).toLowerCase();
+}
+setInterval(tickClock, 1000);
+
+function lights(m, d) {
+  const cold = m.cold_storage !== "none" && (!d.posting_summary.requires_frozen || m.frozen_storage);
+  const van = !!m.refrigerated_transport;
+  const mg = m.margin_hours;
+  const tCls = mg >= 1 ? "good" : mg >= 0 ? "warn" : "bad";
+  return `
+    <div class="light ${cold ? "good" : "bad"}"><div class="ico">❄️</div><div><div class="q">Can they keep it cold?</div><div class="a">${cold ? "Yes, " + esc(m.cold_storage) + " cooler" : "No refrigerator"}</div></div></div>
+    <div class="light ${van ? "good" : "warn"}"><div class="ico">🚐</div><div><div class="q">Who will pick it up?</div><div class="a">${van ? "Their own van, within " + hrs(m.pickup_window_hours) : "Needs a volunteer driver"}</div></div></div>
+    <div class="light ${tCls}"><div class="ico">⏱️</div><div><div class="q">Will it get there in time?</div><div class="a">${mg >= 0 ? hrs(mg) + " to spare" : "Too slow by " + hrs(-mg)}</div></div></div>
+    <div class="light info"><div class="ico">📍</div><div><div class="q">Who it feeds</div><div class="a num">${m.equity_context.poverty_rate}% in poverty · ${m.equity_context.pct_no_vehicle}% no car</div></div></div>`;
+}
+function tabBar(d) {
+  const nb = Math.max(0, d.matches.length - 1), ns = d.rejected_decoys.length;
+  const tabs = [["match", "#1 Match"], ["backups", "Backups" + (nb ? " · " + nb : "")], ["skipped", "Skipped" + (ns ? " · " + ns : "")], ["ask", "Ask Broker"], ["data", "Data"]];
+  return `<div class="tabs" id="tabs"><div class="seg" role="tablist" aria-label="Match brief sections">${tabs.map(([k, l]) => `<button class="tab" type="button" role="tab" data-tab="${k}" aria-selected="false">${l}</button>`).join("")}</div></div>`;
+}
+function showTab(name) {
+  activeTab = name;
+  document.querySelectorAll("#stack .panel").forEach(p => { p.hidden = p.dataset.tab !== name; });
+  document.querySelectorAll("#stack .tab").forEach(t => t.setAttribute("aria-selected", t.dataset.tab === name ? "true" : "false"));
+  $("stack").scrollTop = 0;
+}
+function auditHtml() {
+  const e = equity || { metro_baseline: { poverty_rate: 16.96, pct_no_vehicle: 21.89 }, matched_cohort: { poverty_rate: 16.39, pct_no_vehicle: 25.75 } };
+  return `
+    <div class="audit">
+      <div><div class="k">Households without a car</div><div class="v num">${e.matched_cohort.pct_no_vehicle.toFixed(1)}% <small>matched</small> vs ${e.metro_baseline.pct_no_vehicle.toFixed(1)}% <small>city</small></div></div>
+      <div><div class="k">Poverty rate</div><div class="v num">${e.matched_cohort.poverty_rate.toFixed(1)}% <small>matched</small> vs ${e.metro_baseline.poverty_rate.toFixed(1)}% <small>city</small></div></div>
+    </div>
+    ${e.honest_take ? `<div>${esc(e.honest_take)}</div>` : ""}`;
+}
+
+function driverCardHtml(top) {
+  const isEnroute = driverStatus === "enroute";
+  const tagClass = isEnroute ? "enroute" : "ready";
+  const statusLabel = isEnroute ? "🟢 Van Dispatched · En Route" : "🔵 Van Verified · Ready to Roll";
+  const etaText = isEnroute ? "ETA ~14 mins" : `Transit: ~${Math.max(8, Math.round(top.distance_km * 4.5))} mins (${top.distance_km} km)`;
+  return `
+    <div class="driver-card" id="driverCard">
+      <div class="driver-top">
+        <span class="driver-tag ${tagClass}">${statusLabel}</span>
+        <span class="driver-info num"><b>${etaText}</b></span>
+      </div>
+      <div class="driver-info">
+        🚐 <b>${esc(top.name)}'s Refrigerated Fleet</b> · Dock (Downtown) ➔ ${esc(top.street)}
+      </div>
+    </div>`;
+}
+
+function renderStack(d) {
+  const top = d.matches[0];
+  const backups = d.matches.slice(1);
+  const offer = d.posting_summary.posting_text;
+  const po = d.posting_summary.pallets_offered;
+  let html = tabBar(d) + '<div class="panel" data-tab="match">';
+  if (top) {
+    const routeUrl = `https://www.google.com/maps/dir/?api=1&origin=${d.posting_summary.donor.lat},${d.posting_summary.donor.lon}&destination=${top.lat},${top.lon}`;
+    const room = top.pallets_allocated >= po ? `Takes all ${po} pallet${po > 1 ? "s" : ""}` : `Takes ${top.pallets_allocated} of ${po} pallets`;
+    html += `
+    <section class="card match">
+      <div class="tag"><span class="dot"></span> #1 · They can take it</div>
+      <h3>${esc(top.name)}</h3>
+      <div class="addr">${esc(top.street)} · <b class="num">${top.distance_km} km</b> · ${esc(top.service_days)} · ${room} · <a href="${routeUrl}" target="_blank" rel="noopener">Route ↗</a></div>
+      <div class="lights">${lights(top, d)}</div>
+      <div class="msg">
+        <div class="k"><span>📱 Text message to send to the pantry</span><button class="copy" type="button" id="copyBtn">Copy</button></div>
+        <pre id="draft">${esc(top.draft_message)}</pre>
+      </div>
+      ${driverCardHtml(top)}
+      <div class="actions">
+        <button class="btn go" type="button" id="sendBtn">📲 Send text to pantry</button>
+        <button class="btn no" type="button" id="noBtn">❌ They said no — who's next</button>
+      </div>
+      <div class="match-audio-row">
+        <button class="btn audio-btn" type="button" id="readBriefBtn">🔊 Listen to Match Rationale</button>
+        <button class="btn audio-btn" type="button" id="voiceFromCardBtn">🎙️ Talk to Broker</button>
+      </div>
+    </section>`;
+  } else {
+    html += `<section class="card"><h2>No pantry can take this right now</h2><p class="empty">Every nearby pantry was skipped for a reason listed under Skipped. Try loosening the clock, or turn off "picks it up in their own van" to use a volunteer driver.</p></section>`;
+  }
+  html += '</div><div class="panel" data-tab="backups">';
+  html += `
+    <section class="card">
+      <h2>🔄 They said no? Try next pantry</h2>
+      <p class="sub">Already checked: fridge, van, clock. One click promotes them.</p>
+      ${backups.length ? backups.map(b => `
+        <div class="backup">
+          <div class="n num">#${b.rank}</div>
+          <div><div class="t">${esc(b.name)}</div><div class="d">${esc(b.street)} · ${b.distance_km} km · ${esc(b.cold_storage)} cooler · ${b.equity_context.poverty_rate}% poverty</div></div>
+          <div class="w num">picks up in ${hrs(b.pickup_window_hours)}<br>${hrs(b.margin_hours)} to spare</div>
+        </div>`).join("") : `<p class="empty">No backups left for this offer.</p>`}
+    </section></div><div class="panel" data-tab="skipped">
+    <section class="card">
+      <h2>🛡️ Why we skipped others</h2>
+      <p class="sub">The search found them on meaning. These checks stopped us sending food that would spoil.</p>
+      ${d.rejected_decoys.length ? d.rejected_decoys.map(x => `
+        <div class="skip">
+          <div class="x">✕</div>
+          <div><div class="t">${esc(x.name)} <span style="color:var(--muted);font-weight:500">· #${x.semantic_rank} on meaning</span></div>
+            <div class="d">${esc(humanReason(x, offer))}</div>
+            <div class="r">${esc(x.rejection_reason)}</div></div>
+        </div>`).join("") : `<p class="empty">Nothing skipped for this offer.</p>`}
+    </section></div><div class="panel" data-tab="ask">
+    <section class="card">
+      <h2>💬 Ask the broker</h2>
+      <p class="sub">The seven questions a coordinator asks.</p>
+      <div class="ask" id="ask">
+        ${QUESTIONS.map((q, i) => `<button type="button" data-q="${i}">${q}</button>`).join("")}
+      </div>
+      <div class="answer" id="answer"><span class="empty">Tap a question or speak below.</span></div>
+      
+      <!-- Interactive Voice Broker Widget -->
+      <div class="voice-broker-box">
+        <div class="voice-broker-head">
+          <span class="voice-broker-title">🎙️ Autonomous Voice Broker</span>
+          <div class="soundbars" id="voiceSoundbars">
+            <span class="soundbar"></span><span class="soundbar"></span><span class="soundbar"></span><span class="soundbar"></span>
+          </div>
+        </div>
+        <div class="voice-status-txt" id="voiceStatusTxt">Tap "Speak Question" to talk to the broker or listen to the answers.</div>
+        <button class="voice-mic-btn" id="voiceMicBtn" type="button">🎙️ Speak Question</button>
+      </div>
+    </section></div><div class="panel" data-tab="data">
+    <section class="card honest">
+      <h2>What's real, what isn't</h2>
+      <div><b>Real:</b> organisation names, addresses and income are IRS records. <b>Generated:</b> fridge, capacity and pickup windows (no public data exists). <b>Locations</b> are ZIP centroids. <b>Shelf life</b> is USDA FoodKeeper consumer guidance, not cold-chain science.</div>
+      <div><b>Who it feeds, city-wide</b> (10 test offers vs the Chicago average):</div>
+      <div id="auditBox">${auditHtml()}</div>
+    </section></div>`;
+  $("stack").innerHTML = html;
+  showTab(activeTab);
+  $("tabs").addEventListener("click", e => { const b = e.target.closest(".tab"); if (b) showTab(b.dataset.tab); });
+  
+  if (top) {
+    // Open the interactive recipient phone simulator modal!
+    $("sendBtn").addEventListener("click", () => openPhoneModal(top));
+    
+    // Direct "They said no" button on console
+    $("noBtn").addEventListener("click", () => {
+      if (!declined.includes(top.name)) declined.push(top.name);
+      toast(`${top.name} said no. Showing who's next.`);
+      run();
+    });
+    
+    $("copyBtn").addEventListener("click", async () => {
+      try { await navigator.clipboard.writeText($("draft").textContent); toast("Message copied."); }
+      catch { const r = document.createRange(); r.selectNodeContents($("draft")); const s = getSelection(); s.removeAllRanges(); s.addRange(r); toast("Select and copy the message."); }
+    });
+
+    $("readBriefBtn").addEventListener("click", () => {
+      const briefSummary = `${top.name} is ranked number one. They have a ${top.cold_storage} cooler, their own refrigerated van, and can collect in ${hrs(top.pickup_window_hours)} with ${hrs(top.margin_hours)} safety margin.`;
+      speak(briefSummary);
+      toast("Broker reading match brief aloud...");
+    });
+
+    $("voiceFromCardBtn").addEventListener("click", () => {
+      showTab("ask");
+      startVoiceListening();
+    });
+  }
+
+  $("ask").addEventListener("click", e => {
+    const b = e.target.closest("button"); if (!b) return;
+    if (b.dataset.q == null) return;
+    [...$("ask").children].forEach(x => x.setAttribute("aria-pressed", x === b ? "true" : "false"));
+    askBroker(+b.dataset.q);
+  });
+
+  $("voiceMicBtn").addEventListener("click", () => toggleVoiceListening());
+}
+
+async function askBroker(i) {
+  const box = $("answer");
+  box.innerHTML = `<span class="empty"><span class="spin"></span>Asking…</span>`;
+  try {
+    const res = await fetch("/api/brief", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...lastReq, question: QUESTIONS[i] }) });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const j = await res.json();
+    if (j && j.answer) {
+      box.innerHTML = esc(j.answer) + `<span class="src">Source: ${j.source === "gemini_adk" ? "Gemini via ADK" : "plain answer from the match result"}</span>`;
+      speak(j.answer);
+      return;
+    }
+    throw new Error("no answer");
+  } catch {
+    const fallbackAns = templateAnswer(i, data);
+    box.innerHTML = esc(fallbackAns) + '<span class="src">Source: plain answer from the match result</span>';
+    speak(fallbackAns);
+  }
+}
+function templateAnswer(i, d) {
+  const t = d.matches[0], b = d.matches[1], c = d.clock, g = d.rejected_decoys[0];
+  if (!t) return "No pantry passes every check right now. See Skipped for why.";
+  switch (i) {
+    case 0: return `${t.name}, ${t.street}. They have a ${t.cold_storage} cooler and their own van, and can collect within ${hrs(t.pickup_window_hours)} with ${hrs(t.margin_hours)} to spare.`;
+    case 1: return g ? `${g.name} ranked #${g.semantic_rank} on meaning, but ${humanReason(g, d.posting_summary.posting_text).replace(/^Why we skipped \w+: /, "")} ${t.name} passes every check and serves a neighbourhood where ${t.equity_context.poverty_rate}% live in poverty.` : `${t.name} passed every check.`;
+    case 2: return b ? `${b.name}, ${b.street}. ${b.cold_storage} cooler, own van, collects within ${hrs(b.pickup_window_hours)}. Press "They said no" to promote them and get their message.` : "No backup left. Loosen the clock or allow a volunteer driver.";
+    case 3: return `USDA FoodKeeper lists ${c.matched_usda_product} at about ${c.usda_shelf_life_hours} h in a home fridge. That is consumer guidance, not cold-chain science, so we use the donor's ${c.donor_deadline_hours} h deadline as the clock.`;
+    case 4: return t.refrigerated_transport ? `${t.name} picks up in their own refrigerated van. No volunteer driver needed.` : `${t.name} has no van. Send a volunteer driver with a cooler.`;
+    case 5: return `${t.name} sits in a census tract where ${t.equity_context.poverty_rate}% of people live in poverty and ${t.equity_context.pct_no_vehicle}% of households have no car. That is what broke the tie with ${b ? b.name : "the next pantry"}.`;
+    case 6: return t.draft_message;
+  }
+}
+async function loadEquity() {
+  try {
+    const res = await fetch("/api/equity_audit");
+    if (!res.ok) return;
+    equity = await res.json();
+    const box = $("auditBox"); if (box) box.innerHTML = auditHtml();
+  } catch { /* optional endpoint */ }
+}
+function toast(msg) { const t = $("toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove("show"), 3200); }
+
+/* ---------------------------------------------------------------
+   MAP — Leaflet + CARTO basemap. Pins from contract lat/lon.
+---------------------------------------------------------------- */
+let map = null, pinsLayer = null, tiles = null, vanMarker = null, vanRaf = null, routePts = null, vanT = 0;
+const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const isDark = () => matchMedia("(prefers-color-scheme: dark)").matches && document.documentElement.dataset.theme !== "light" || document.documentElement.dataset.theme === "dark";
+function css(n) { return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
+function tileLayer() {
+  return L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors', maxZoom: 19 });
+}
+function initMap() {
+  if (map) return;
+  map = L.map("map", { zoomControl: true }).setView([DONOR.lat, DONOR.lon], 13);
+  tiles = tileLayer().addTo(map);
+  pinsLayer = L.layerGroup().addTo(map);
+}
+const pinIcon = (cls, label, ring) => L.divIcon({ className: "", html: `<div class="pin-wrap">${ring ? '<div class="ring"></div>' : ""}<div class="pin ${cls}">${label}</div></div>`, iconSize: [60, 60], iconAnchor: [30, 30], popupAnchor: [0, -22] });
+function drawMap(d) {
+  initMap();
+  pinsLayer.clearLayers();
+  cancelAnimationFrame(vanRaf); vanMarker = null; routePts = null;
+  const donor = d.posting_summary.donor, top = d.matches[0], offer = d.posting_summary.posting_text;
+  const bounds = [[donor.lat, donor.lon]];
+  d.rejected_decoys.forEach(x => {
+    if (x.lat == null || x.lon == null) return;
+    L.marker([x.lat, x.lon], { icon: pinIcon("pin-bad", "✕") }).bindPopup(`<b>Skipped: ${esc(x.name)}</b>${esc(humanReason(x, offer))}`).addTo(pinsLayer);
+    bounds.push([x.lat, x.lon]);
+  });
+  d.matches.slice(1).forEach(m => {
+    L.marker([m.lat, m.lon], { icon: pinIcon("pin-warn", "#" + m.rank) }).bindPopup(`<b>#${m.rank} backup: ${esc(m.name)}</b>${esc(m.street)} · ${m.distance_km} km · picks up in ${hrs(m.pickup_window_hours)}`).addTo(pinsLayer);
+    bounds.push([m.lat, m.lon]);
+  });
+  if (top) {
+    routePts = [[donor.lat, donor.lon], [top.lat, donor.lon], [top.lat, top.lon]];   // Chicago grid: one turn
+    L.polyline(routePts, { color: css("--accent"), weight: 5, opacity: 0.85, lineJoin: "round", lineCap: "round" }).addTo(pinsLayer);
+    L.marker([top.lat, top.lon], { icon: pinIcon("pin-good", "1", true), zIndexOffset: 500 }).bindPopup(`<b>#1 ${esc(top.name)}</b>${esc(top.street)} · ${top.distance_km} km · ${esc(top.cold_storage)} cooler, own van`).addTo(pinsLayer);
+    bounds.push([top.lat, top.lon]);
+    vanMarker = L.marker(routePts[0], { icon: pinIcon("pin-van", "🚐"), zIndexOffset: 1000, interactive: false }).addTo(pinsLayer);
+    vanT = 0; if (!reduce) animateVan(); else vanMarker.setLatLng(lerpRoute(0.45));
+  }
+  L.marker([donor.lat, donor.lon], { icon: pinIcon("pin-donor", "🏪"), zIndexOffset: 800 }).bindPopup(`<b>Pickup dock</b>${esc(offer)}`).addTo(pinsLayer);
+  map.fitBounds(bounds, { padding: [60, 60], maxZoom: 14 });
+}
+function lerpRoute(t) {
+  const [a, k, b] = routePts;
+  const s1 = Math.hypot(k[0] - a[0], k[1] - a[1]), s2 = Math.hypot(b[0] - k[0], b[1] - k[1]), L2 = s1 + s2 || 1;
+  const dist = Math.min(1, t) * L2;
+  if (dist <= s1) { const f = s1 ? dist / s1 : 0; return [a[0] + (k[0] - a[0]) * f, a[1] + (k[1] - a[1]) * f]; }
+  const f = s2 ? (dist - s1) / s2 : 0; return [k[0] + (b[0] - k[0]) * f, k[1] + (b[1] - k[1]) * f];
+}
+function animateVan() {
+  if (!vanMarker || !routePts) return;
+  const speed = driverStatus === "enroute" ? 0.006 : 0.003;
+  vanT = (vanT + speed) % 1.2;
+  vanMarker.setLatLng(lerpRoute(Math.min(vanT, 1.0)));
+  vanRaf = requestAnimationFrame(animateVan);
+}
+
+/* ---------------------------------------------------------------
+   Interactive Smartphone Simulator Implementation
+---------------------------------------------------------------- */
+let currentPhoneTop = null;
+
+function openPhoneModal(top) {
+  if (!top) return;
+  currentPhoneTop = top;
+  const d = data;
+  const offer = d ? d.posting_summary.posting_text : $("posting_text").value;
+  const po = d ? d.posting_summary.pallets_offered : 1;
+  const deadline = d && d.clock ? d.clock.donor_deadline_hours : 6;
+  const margin = top.margin_hours;
+
+  $("phonePantryName").textContent = top.name;
+  $("phoneContactSub").textContent = `📱 Coordinator Phone · ${top.street}`;
+
+  const now = new Date();
+  const timeStr = now.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  $("phoneTime").textContent = timeStr.replace(/ [AP]M/, "");
+  $("phoneDateDivider").textContent = `Today · ${timeStr}`;
+
+  const draftText = top.draft_message || 
+    `🚨 URGENT SURPLUS DISPATCH:\n${offer} (${po} pallet${po > 1 ? "s" : ""}).\n📍 Pickup: Downtown Hub (${top.distance_km} km away)\n❄️ Cooler: ${top.cold_storage}\n⏱️ Window: ${hrs(top.pickup_window_hours)} (margin: ${hrs(margin)}).\nReply ACCEPT or DECLINE.`;
+
+  $("phoneChatBody").innerHTML = `
+    <div class="phone-date-divider">Today · ${timeStr}</div>
+    <div class="sms-bubble incoming">
+      <div class="sms-sender">🤖 Autonomous Food Broker (312-555-RESCUE)</div>
+      <div class="sms-text">${esc(draftText).replace(/\n/g, "<br>")}</div>
+      <div class="sms-time">${timeStr}</div>
+    </div>
+  `;
+
+  $("phoneAcceptBtn").disabled = false;
+  $("phoneDeclineBtn").disabled = false;
+  $("phoneCustomInput").value = "";
+
+  $("phoneBackdrop").classList.add("open");
+}
+
+function closePhoneModal() {
+  $("phoneBackdrop").classList.remove("open");
+}
+
+function handlePhoneDecline(reason = "Walk-in cooler at full capacity") {
+  if (!currentPhoneTop) return;
+  const top = currentPhoneTop;
+  const timeStr = new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+
+  $("phoneAcceptBtn").disabled = true;
+  $("phoneDeclineBtn").disabled = true;
+
+  const chat = $("phoneChatBody");
+  const outBubble = document.createElement("div");
+  outBubble.className = "sms-bubble outgoing decline-out";
+  outBubble.innerHTML = `<div class="sms-text">DECLINE — ${esc(reason)}. Please route to backup pantry.</div><div class="sms-time">${timeStr}</div>`;
+  chat.appendChild(outBubble);
+  chat.scrollTop = chat.scrollHeight;
+
+  setTimeout(() => {
+    const backupName = data && data.matches && data.matches[1] ? data.matches[1].name : "next available candidate";
+    const botBubble = document.createElement("div");
+    botBubble.className = "sms-bubble incoming broker-bot";
+    botBubble.innerHTML = `
+      <div class="sms-sender">🤖 Autonomous Food Broker</div>
+      <div class="sms-text">⚠️ <b>Decline confirmed.</b> Dispatch released. Autonomous Broker is instantly re-routing to backup: <b>${esc(backupName)}</b>.</div>
+      <div class="sms-time">${timeStr}</div>
+    `;
+    chat.appendChild(botBubble);
+    chat.scrollTop = chat.scrollHeight;
+
+    setTimeout(() => {
+      closePhoneModal();
+      if (!declined.includes(top.name)) declined.push(top.name);
+      toast(`⚡ ${top.name} DECLINED via SMS → Autonomous Broker promoted ${backupName} to #1!`);
+      run();
+    }, 1400);
+  }, 600);
+}
+
+function handlePhoneAccept() {
+  if (!currentPhoneTop) return;
+  const top = currentPhoneTop;
+  const timeStr = new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+
+  $("phoneAcceptBtn").disabled = true;
+  $("phoneDeclineBtn").disabled = true;
+
+  const chat = $("phoneChatBody");
+  const outBubble = document.createElement("div");
+  outBubble.className = "sms-bubble outgoing";
+  outBubble.innerHTML = `<div class="sms-text">ACCEPT — We'll take all pallets! Dispatching our refrigerated van now.</div><div class="sms-time">${timeStr}</div>`;
+  chat.appendChild(outBubble);
+  chat.scrollTop = chat.scrollHeight;
+
+  setTimeout(() => {
+    const botBubble = document.createElement("div");
+    botBubble.className = "sms-bubble incoming broker-bot";
+    botBubble.innerHTML = `
+      <div class="sms-sender">🤖 Autonomous Food Broker</div>
+      <div class="sms-text">🎉 <b>Confirmed!</b> Dispatch locked with ${esc(top.name)}. Route active: Downtown Dock ➔ ${esc(top.street)}. Driver van ETA: ~14 min.</div>
+      <div class="sms-time">${timeStr}</div>
+    `;
+    chat.appendChild(botBubble);
+    chat.scrollTop = chat.scrollHeight;
+
+    driverStatus = "enroute";
+    const driverCardEl = $("driverCard");
+    if (driverCardEl) driverCardEl.outerHTML = driverCardHtml(top);
+
+    setTimeout(() => {
+      closePhoneModal();
+      toast(`✅ Delivery ACCEPTED by ${top.name}! Driver van is now en route.`);
+      if (map && vanMarker) {
+        map.panTo(vanMarker.getLatLng(), { animate: true });
+      }
+    }, 1500);
+  }, 600);
+}
+
+// Custom SMS handling
+function handleCustomSMS() {
+  const input = $("phoneCustomInput");
+  const txt = (input.value || "").trim();
+  if (!txt) return;
+  input.value = "";
+  const low = txt.toLowerCase();
+  if (low.includes("no") || low.includes("decline") || low.includes("pass") || low.includes("full") || low.includes("cancel")) {
+    handlePhoneDecline(txt);
+  } else {
+    handlePhoneAccept();
+  }
+}
+
+$("phoneCloseBtn").addEventListener("click", closePhoneModal);
+$("phoneCloseX").addEventListener("click", closePhoneModal);
+$("phoneAcceptBtn").addEventListener("click", () => handlePhoneAccept());
+$("phoneDeclineBtn").addEventListener("click", () => handlePhoneDecline());
+$("phoneDeclineChips").addEventListener("click", e => {
+  const b = e.target.closest(".phone-chip");
+  if (b && b.dataset.reason) handlePhoneDecline(b.dataset.reason);
+});
+$("phoneSendCustom").addEventListener("click", handleCustomSMS);
+$("phoneCustomInput").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); handleCustomSMS(); } });
+
+/* ---------------------------------------------------------------
+   Autonomous Voice Broker Implementation (Web Speech API)
+---------------------------------------------------------------- */
+const synth = window.speechSynthesis;
+let recognition = null;
+let isListening = false;
+let isSpeaking = false;
+
+function initVoice() {
+  const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (SpeechRec) {
+    recognition = new SpeechRec();
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.lang = "en-US";
+    recognition.onstart = () => {
+      isListening = true;
+      updateVoiceUI("Listening... Ask your question", true);
+    };
+    recognition.onresult = (e) => {
+      isListening = false;
+      const transcript = e.results[0][0].transcript;
+      updateVoiceUI(`"${transcript}"`, false);
+      handleVoiceQuery(transcript);
+    };
+    recognition.onerror = () => {
+      isListening = false;
+      updateVoiceUI("Microphone cancelled or unavailable", false);
+    };
+    recognition.onend = () => {
+      isListening = false;
+      if (!isSpeaking) updateVoiceUI("Voice Broker ready", false);
+    };
+  }
+}
+
+function updateVoiceUI(statusMsg, activeWave = false, speaking = false) {
+  const txtEl = $("voiceStatusTxt");
+  if (txtEl) txtEl.textContent = statusMsg;
+  const bars = $("voiceSoundbars");
+  if (bars) bars.classList.toggle("active", activeWave || speaking);
+  const micBtn = $("voiceMicBtn");
+  if (micBtn) {
+    micBtn.classList.toggle("listening", isListening);
+    micBtn.textContent = isListening ? "🔴 Listening..." : "🎙️ Speak Question";
+  }
+  const chip = $("voiceToggleBtn");
+  if (chip) chip.classList.toggle("active", isListening || speaking);
+}
+
+function speak(text, onEnd) {
+  if (!synth) { if (onEnd) onEnd(); return; }
+  try {
+    synth.cancel();
+    const cleanText = text.replace(/<[^>]*>/g, "").replace(/[*_#]/g, "");
+    const u = new SpeechSynthesisUtterance(cleanText);
+    u.rate = 1.05;
+    const voices = synth.getVoices();
+    const preferred = voices.find(v => v.lang.startsWith("en") && (v.name.includes("Natural") || v.name.includes("Google") || v.name.includes("Samantha") || v.name.includes("Karen")));
+    if (preferred) u.voice = preferred;
+    isSpeaking = true;
+    updateVoiceUI("Broker speaking...", false, true);
+    u.onend = () => {
+      isSpeaking = false;
+      updateVoiceUI("Voice Broker ready", false, false);
+      if (onEnd) onEnd();
+    };
+    u.onerror = () => {
+      isSpeaking = false;
+      updateVoiceUI("Voice Broker ready", false, false);
+      if (onEnd) onEnd();
+    };
+    synth.speak(u);
+  } catch (err) {
+    isSpeaking = false;
+    updateVoiceUI("Voice Broker ready", false, false);
+  }
+}
+
+function startVoiceListening() {
+  if (!recognition) initVoice();
+  if (recognition) {
+    try {
+      if (synth) synth.cancel();
+      recognition.start();
+    } catch (err) {
+      // recognition might already be active
+    }
+  } else {
+    toast("Microphone speech recognition not supported in this browser. Use buttons to hear spoken answers!");
+  }
+}
+
+function toggleVoiceListening() {
+  if (isListening && recognition) {
+    recognition.stop();
+  } else {
+    startVoiceListening();
+  }
+}
+
+async function handleVoiceQuery(q) {
+  const qLower = q.toLowerCase();
+  
+  if (qLower.includes("send text") || qLower.includes("dispatch") || qLower.includes("message to pantry") || qLower.includes("text pantry")) {
+    if (data && data.matches && data.matches[0]) {
+      speak(`Sending dispatch SMS to ${data.matches[0].name} now.`);
+      openPhoneModal(data.matches[0]);
+      return;
+    }
+  }
+  if (qLower.includes("they said no") || qLower.includes("decline") || qLower.includes("who's next") || qLower.includes("whos next")) {
+    if (data && data.matches && data.matches[0]) {
+      const topName = data.matches[0].name;
+      declined.push(topName);
+      speak(`${topName} declined. Promoting backup candidate.`);
+      toast(`${topName} declined via voice command.`);
+      run();
+      return;
+    }
+  }
+
+  try {
+    updateVoiceUI("Querying broker...", false);
+    const res = await fetch("/api/brief", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...lastReq, question: q })
+    });
+    if (res.ok) {
+      const j = await res.json();
+      if (j && j.answer) {
+        showTab("ask");
+        $("answer").innerHTML = esc(j.answer) + `<span class="src">Source: Voice Broker (${j.source})</span>`;
+        speak(j.answer);
+        return;
+      }
+    }
+  } catch (e) { }
+
+  if (data && data.matches && data.matches[0]) {
+    const top = data.matches[0];
+    const resp = `${top.name} can take this surplus. They have a ${top.cold_storage} cooler and their own refrigerated van, picking up within ${hrs(top.pickup_window_hours)}.`;
+    showTab("ask");
+    $("answer").innerHTML = esc(resp) + `<span class="src">Source: Voice Broker</span>`;
+    speak(resp);
+  }
+}
+
+$("voiceToggleBtn").addEventListener("click", () => {
+  if (synth && isSpeaking) {
+    synth.cancel();
+    isSpeaking = false;
+    updateVoiceUI("Voice Broker ready", false, false);
+    return;
+  }
+  showTab("ask");
+  toggleVoiceListening();
+});
+
+/* ---------------------------------------------------------------
+   Wiring
+---------------------------------------------------------------- */
+$("scenarios").addEventListener("click", e => {
+  const b = e.target.closest(".scenario"); if (!b) return;
+  [...$("scenarios").children].forEach(x => x.setAttribute("aria-pressed", x === b ? "true" : "false"));
+  const s = SCENARIOS[b.dataset.id];
+  $("posting_text").value = s.text; $("pallets").value = s.pallets; $("hours").value = s.hours; $("req_cold").checked = s.cold; $("req_van").checked = s.van;
+  declined = []; run();
+});
+$("findBtn").addEventListener("click", () => { declined = []; run(); });
+const backToOffer = () => { showScreen("offer"); $("posting_text").focus(); };
+$("brand").addEventListener("click", backToOffer);
+$("brand").addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); backToOffer(); } });
+$("offerSummary").addEventListener("click", backToOffer);
+$("posting_text").addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); declined = []; run(); } });
+
+initVoice();
+loadEquity();
+showScreen("offer");
+</script>
+</body>
+</html>

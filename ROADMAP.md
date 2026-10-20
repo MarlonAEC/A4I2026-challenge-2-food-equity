@@ -16,7 +16,7 @@
 | **1. Data & Vector Search Lead** | `@beshermahrouka` | `data` | `notebooks/`, `scripts/load.sh`, `sql/` |
 | **2. ADK Agent & MCP Lead** | `@TODO_Name_2` | `agent` | `agent/agent.py`, `agent/prompt.py` |
 | **3. Custom "Uber" Tools Lead** | `Andrea ✅` | `tools` | `agent/tools.py` |
-| **4. Frontend & Map UI Lead** | `@TODO_Name_4` | `frontend` | `app/` |
+| **4. Frontend & Map UI Lead** | `@braysh` | `frontend` | `app/` |
 | **5. Cloud Run, QA & Pitch Lead** | `@MarlonAEC` | `deploy-story` | `Dockerfile`, `deploy.sh`, `scripts/verify_traps.py`, `docs/` |
 
 ---
@@ -28,6 +28,24 @@
 - [x] **Write our 1-sentence opening scenario:**
   > *"We coordinate food rescue in **Chicago**. A **local grocer** has just offered us **10 crates of spinach**, and it has to move within **6 hours**. Here is who we call first, why the top keyword match would have spoiled it, and who gets pinged automatically if #1 says no."*
 - [x] **Git Setup:** Everyone added as a GitHub Collaborator, repo cloned in Cloud Shell, and each person checked out their branch (`git checkout -b <branch>`).
+
+---
+
+## 💬 Product Voice & Human Language Guide (For All 5 Lanes!)
+
+> **Why this matters:** A busy pantry volunteer or grocer on a loading dock doesn't talk about "ingesting surplus payloads" or "cascading failovers." When our UI, Agent Prompts, Custom Tools, and Pitch Deck all speak the same simple, empathetic language, judges immediately see a tool real humans would actually use at 4 PM on a Thursday.
+
+| What's Happening | Tech Jargon (Do NOT Use) | **Plain Human Words (Use Everywhere!)** |
+| :--- | :--- | :--- |
+| **Supply (Donor)** | *Post Surplus / Ingest Payload / Yield* | **"We have extra food" / Give / Donate** |
+| **Urgency (Clock)** | *Interception Window / Expiry Horizon* | **"Needs to go by..." / Time Left on Clock** |
+| **Coordinator Job** | *Run Vector Match / Triage & Query* | **"Find who can take it" / Match** |
+| **Storage Check** | *Cold-Chain Physical Constraint Filter* | **"Can they keep it cold?" / Do they have room?** |
+| **Demand (Pantry)** | *Absorption Partner / Claim Entity* | **"Who can take it" / Pantry / Community Kitchen** |
+| **Transport** | *Reefer Haulage Dispatch* | **"Who will pick it up?" / Bring it / Van** |
+| **Backup Flow** | *Failover Cascade to Backup Target* | **"They said no? Try next pantry"** |
+| **Decoy Safeguard** | *Hard Filter Reject Decoy Exception* | **"Why we skipped Greenline: No refrigerator"** |
+| **Dispatched SMS** | *Serialized Outbound Notification Payload* | **"Text message to send to the pantry"** |
 
 ---
 
@@ -135,20 +153,23 @@
 
 ---
 
-## 🖥️ Lane 4: Frontend "Uber Dispatch" UI (`branch: frontend`) — `@braysh`
+## 🖥️ Lane 4: Frontend UI & Story Lead (`branch: frontend`) — `@braysh`
 
-### Milestone 4A: UI Layout with Mock Data (Target: 1:15)
-- [x] Build `app/` using the **Shared JSON Contract** below:
-  - [x] **Donor Post Panel:** Quick call demo scenario buttons + free-text input + coordinator follow-up chat box.
-  - [x] **Live City Map:** Shows Donor pin, Match #1 (Green), Backups #2 & #3 (Amber), and Blocked Decoy (Red/Gray).
-  - [x] **Match Brief & Dispatch Panel:** Displays countdown clock badge, capacity badges (`🚐 Has Reefer Van`, `❄️ Walk-in Cooler`), equity stats, and drafted SMS message.
-  - [x] **"They Said No" Button:** Clicking `[❌ Decline Pickup -> Ping Backup #2]` animates/switches the active dispatch to #2 immediately.
+### Milestone 4A: Clean Human UI Layout (Target: 1:15)
+- [x] Build `app/` using the **Shared JSON Contract** & **Product Voice Guide**:
+  - [x] **Donor Post Panel ("We have extra food"):** 1-click scenario buttons ("Grocer Spinach Call" with 6h clock) + simple description & deadline inputs.
+  - [x] **Live City Map:** Leaflet map showing Donor pin, Match #1 (Green), Backups #2 & #3 (Amber), and Blocked Decoys (Red). *(built as: red pins show once the matcher sends their location)*
+  - [x] **Match Brief Card:** Simple traffic-light checks (❄️ Can keep cold?, 🚐 Can pick up?, ⏱️ Time margin safe?, 📍 Who it feeds).
+  - [x] **"They Said No" Action:** `[❌ They said no — Show who's next]` immediately activates and displays Backup #2.
+  - [x] **Safeguard Inspector Card:** Simple explanation ("Why we skipped Greenline: wants greens, but has no refrigerator").
 
-### Milestone 4B: Connect Live Agent Backend (Target: 2:15)
-- [x] Wire UI to **Lane 2 & Lane 3** broker tools / FastAPI endpoint (`/api/match`, `/api/brief`, `/api/equity_audit`).
-- [x] Test end-to-end flow on the presentation laptop.
+### Milestone 4B: Live Backend Connection & Story Integration (Target: 2:15)
+- [x] Connect UI to `POST /api/match` FastAPI endpoint.
+- [ ] Add interactive preview for Slide 5: **Conversational Pantry Intake Agent** mockup.
+- [ ] Align with **Lane 5** on the 5-Slide Pitch Deck and 3-minute video recording.
 
 ### Milestone 4C: Live Equity Audit Dashboard & Policy Switch (Going Further)
+Blocked: needs an endpoint that does not exist yet (`/api/equity-audit`).
 - [ ] Add an interactive **"📊 Live Equity Audit & Baseline Comparison"** view/modal in `app/main.py`:
   - [ ] Connects to `/api/equity-audit` (backed by `run_equity_audit_across_postings()`).
   - [ ] Displays live comparison badges: Matched Cohort (16.4% poverty, 25.8% transit insecure) vs. Metro Baseline (17.0% poverty, 21.9% transit insecure) -> **+3.9% lift in reaching vehicle-insecure households!**
@@ -156,6 +177,7 @@
 - [ ] Add a **Routing Policy Toggle Switch** in the UI (`[ ⚡ Logistics First ]` vs. `[ 🎯 Equity-Weighted ]`) so coordinators can see how ranking shifts between warehouse loading docks and high-need community storefronts.
 
 ### Milestone 4D: Conversational Pantry Onboarding Modal (Going Further)
+Blocked: needs an endpoint that does not exist yet (intake agent over HTTP).
 - [ ] Add a "Register New Pantry" modal in `app/main.py`:
   - [ ] Coordinator enters natural-language description (e.g. *"St. Jude Pantry in Pilsen, walk-in cooler, no loading dock"*).
   - [ ] Wires to Lane 2's intake agent endpoint, saves new recipient, and proves they appear immediately in subsequent vector searches.
