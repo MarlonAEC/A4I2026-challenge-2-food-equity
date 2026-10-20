@@ -79,6 +79,20 @@ if [ -n "$INPUT_KEY" ]; then
   export GOOGLE_API_KEY="$INPUT_KEY"
 fi
 
+if [ -z "$GEMINI_API_KEY" ] && [ -z "$GOOGLE_API_KEY" ] && [ -t 0 ]; then
+  echo "💡 No GEMINI_API_KEY detected in your environment or .env."
+  read -r -p "🔑 Enter your Gemini API key (or press Enter to continue): " USER_KEY
+  if [ -n "$USER_KEY" ]; then
+    export GEMINI_API_KEY="$USER_KEY"
+    export GOOGLE_API_KEY="$USER_KEY"
+    read -r -p "💾 Save this to .env for future runs? [y/N]: " SAVE_ENV
+    if [[ "$SAVE_ENV" =~ ^[Yy]$ ]]; then
+      echo "GEMINI_API_KEY=$USER_KEY" >> .env
+      echo "✅ Saved to .env (ignored by git)"
+    fi
+  fi
+fi
+
 if [ -n "$GEMINI_API_KEY" ] && [ -z "$GOOGLE_API_KEY" ]; then
   export GOOGLE_API_KEY="$GEMINI_API_KEY"
 elif [ -n "$GOOGLE_API_KEY" ] && [ -z "$GEMINI_API_KEY" ]; then
