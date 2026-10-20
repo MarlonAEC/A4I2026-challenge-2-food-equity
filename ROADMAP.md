@@ -151,6 +151,12 @@
   - [x] Checks incoming surplus postings for active food recall alerts (e.g., listeria in bagged spinach, undeclared allergens).
   - [x] Halts or flags high-risk surplus items before dispatching to community pantries.
 
+### Milestone 3F: Real-Time Traffic & Congestion Calculator (Going Further — Civic Open Data)
+- [ ] Implement `calculate_transit_time_with_traffic(...)` and `get_chicago_traffic_congestion(...)` in `agent/tools.py`:
+  - [ ] Queries live traffic conditions (City of Chicago Live Traffic Tracker API `https://data.cityofchicago.org/resource/8v9j-b3ed.json` with fallback to Google Maps Routes / OSRM and peak rush-hour grid congestion curve).
+  - [ ] Computes exact driving transit time, average speed, and congestion delay (e.g. +14 min delay).
+  - [ ] Adjusts pantry collection window and safety margin (`margin_hours`), alerting coordinators when traffic threatens perishable shelf-life windows.
+
 ---
 
 ## 🖥️ Lane 4: Frontend UI & Story Lead (`branch: frontend`) — `@braysh`
@@ -181,6 +187,10 @@ Blocked: needs an endpoint that does not exist yet (intake agent over HTTP).
 - [ ] Add a "Register New Pantry" modal in `app/main.py`:
   - [ ] Coordinator enters natural-language description (e.g. *"St. Jude Pantry in Pilsen, walk-in cooler, no loading dock"*).
   - [ ] Wires to Lane 2's intake agent endpoint, saves new recipient, and proves they appear immediately in subsequent vector searches.
+
+### Milestone 4E: Live Traffic Congestion & Delay Badge (Going Further)
+- [ ] Display real-time traffic status pill and route delay on Match card (e.g. `🚗 Congestion: Moderate (+9 min delay) · Live City of Chicago Traffic Tracker`).
+- [ ] Display traffic-aware transit time and ETA in Recipient Smartphone Simulator SMS and driver dispatch badge.
 
 ---
 

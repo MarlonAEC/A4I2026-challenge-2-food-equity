@@ -28,7 +28,12 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from agent.intake import build_pantry_profile, register_pantry
-from agent.tools import check_shelf_life_clock, find_and_rank_recipients
+from agent.tools import (
+    calculate_transit_time_with_traffic,
+    check_shelf_life_clock,
+    find_and_rank_recipients,
+    get_chicago_traffic_congestion,
+)
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
@@ -37,6 +42,8 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
 @app.get("/healthz")
+@app.get("/health")
+@app.get("/api/health")
 def healthz() -> dict[str, str]:
     return {"status": "ok", "service": "food-rescue-broker"}
 
@@ -125,6 +132,29 @@ def api_intake_register(req: IntakeRegisterRequest) -> dict[str, Any]:
 @app.get("/", response_class=HTMLResponse)
 def index() -> FileResponse:
     return FileResponse(STATIC_DIR / "index.html")
+
+
+@app.get("/console", response_class=HTMLResponse)
+def console() -> Any:
+    page = STATIC_DIR / "console.html"
+    if page.exists():
+        return FileResponse(page)
+    return FileResponse(STATIC_DIR / "index.html")
+
+
+@app.get("/api/traffic")
+def api_traffic(
+    origin_lat: float = 41.8781,
+    origin_lon: float = -87.6298,
+    dest_lat: float = 41.8520,
+    dest_lon: float = -87.6600,
+) -> dict[str, Any]:
+    return get_chicago_traffic_congestion(
+        origin_lat=origin_lat,
+        origin_lon=origin_lon,
+        dest_lat=dest_lat,
+        dest_lon=dest_lon,
+    )
 
 
 @app.get("/intake", response_class=HTMLResponse)
