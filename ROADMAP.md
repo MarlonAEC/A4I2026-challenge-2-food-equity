@@ -78,10 +78,10 @@
   6. Ready-to-Send Pickup Alert Message
   7. Backups #2 and #3 ("If They Say No") + Rejected Decoys warning
 - [x] Plug in **Lane 3's** custom tools from `agent/tools.py`.
-- [ ] Connect `run_equity_audit_across_postings` into `tools_list` in `agent/agent.py` so the agent can execute real-time Responsible AI audits on demand.
+- [x] Connect `run_equity_audit_across_postings` into `tools_list` in `agent/agent.py` so the agent can execute real-time Responsible AI audits on demand.
 
 ### Milestone 2C: Coordinator Q&A Verification (Target: 2:15)
-- [ ] Test all coordinator questions from `README.md` (7 original + Responsible AI audit):
+- [x] Test all coordinator questions from `README.md` (7 original + Responsible AI audit):
   - [x] *"Who can take 10 crates of spinach and collect before 8pm?"*
   - [x] *"Why them and not the other pantry?"* (explains why `Greenline` decoy was rejected)
   - [x] *"They said no. Who's next?"* (promotes Backup #2)
@@ -89,6 +89,7 @@
   - [x] *"Can they pick it up themselves or do we need a driver?"* (`refrigerated_transport`)
   - [x] *"Whose neighborhood does this help?"* (`tract_demographics`)
   - [x] *"Write the pickup message."*
+  - [x] *"Run an equity audit across our dispatches — are we favoring loading docks over high-need tracts?"* (cites live `run_equity_audit_across_postings` findings)
   - [ ] *"Run an equity audit across our dispatches — are we favoring loading docks over high-need tracts?"* (cites `docs/equity_audit.md` findings)
 
 ### Milestone 2D: Conversational Pantry Intake Agent (Going Further — "The 4-Hour Add-on")

@@ -19,12 +19,14 @@ from .tools import (
     check_shelf_life_clock,
     dispatch_pickup_and_fallback,
     find_and_rank_recipients,
+    run_equity_audit_across_postings,
 )
 
 tools_list = [
     check_shelf_life_clock,
     find_and_rank_recipients,
     dispatch_pickup_and_fallback,
+    run_equity_audit_across_postings,
 ]
 
 MCP_TOOLBOX_URL = os.environ.get("MCP_TOOLBOX_URL")
