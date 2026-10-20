@@ -747,7 +747,7 @@ function svgMap(d) {
   box.innerHTML = `<svg class="smap" viewBox="0 0 ${W} ${H}" role="img" aria-label="Map of the pickup, the pantry that can take it, backups and skipped pantries">${s}</svg>`;
 }
 function drawMap(d) {
-  if (standalone || !window.L) { if (map) { map.remove(); map = null; } svgMap(d); return; }
+  if (!window.L) { if (map) { map.remove(); map = null; } svgMap(d); return; }
   initMap();
   setTimeout(() => map && map.invalidateSize(), 60);
   pinsLayer.clearLayers();
@@ -800,7 +800,19 @@ $("brand").addEventListener("click", toBoard);
 $("brand").addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toBoard(); } });
 window.addEventListener("hashchange", render);
 (async () => {
-  try { const res = await fetch("/healthz", { cache: "no-store" }); const j = await res.json(); standalone = !(res.ok && j && j.status === "ok"); } catch { standalone = true; }
+  try {
+    let res = await fetch("/api/health", { cache: "no-store" }).catch(() => null);
+    if (!res || !res.ok) res = await fetch("/health", { cache: "no-store" }).catch(() => null);
+    if (!res || !res.ok) res = await fetch("/healthz", { cache: "no-store" }).catch(() => null);
+    if (res && res.ok) {
+      const j = await res.json().catch(() => null);
+      standalone = !(j && j.status === "ok");
+    } else {
+      standalone = false;
+    }
+  } catch {
+    standalone = false;
+  }
   await seedIfEmpty();
   render();
 })();
