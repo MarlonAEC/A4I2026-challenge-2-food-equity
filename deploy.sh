@@ -18,6 +18,11 @@ if [[ -z "${GCLOUD_PROJECT}" || "${GCLOUD_PROJECT}" == "(unset)" ]]; then
 fi
 PROJECT_ID="${PROJECT_ID:-${GCLOUD_PROJECT}}"
 
+# MATCH_SOURCE=seeded pins the recorded demo to the seeded trap story (Greenline, Harborview,
+# Cedar vs Maple, "They said no"). MATCH_SOURCE=auto re-enables live BigQuery vector search.
+# Exported so the step 1 check runs in the same mode as the deployed service.
+export MATCH_SOURCE="${MATCH_SOURCE:-seeded}"
+
 if [[ -z "${PROJECT_ID}" || "${PROJECT_ID}" == "(unset)" ]]; then
   echo "❌ ERROR: No Google Cloud project is set."
   echo "Run:  gcloud config set project YOUR_PROJECT_ID"
@@ -30,6 +35,7 @@ echo "🚀 Lane 5 Cloud Run Deployment"
 echo "   Project : ${PROJECT_ID}"
 echo "   Service : ${SERVICE_NAME}"
 echo "   Region  : ${REGION}"
+echo "   Data    : MATCH_SOURCE=${MATCH_SOURCE}"
 echo "============================================================"
 echo
 
@@ -48,6 +54,8 @@ gcloud services enable \
 echo
 
 echo "3/4 Deploying ${SERVICE_NAME} to Cloud Run (min-instances=1 to prevent cold starts)..."
+# --set-env-vars carries MATCH_SOURCE: seeded pins the recorded demo to the seeded trap story,
+# auto re-enables live BigQuery (run: MATCH_SOURCE=auto bash deploy.sh).
 gcloud run deploy "${SERVICE_NAME}" \
   --project="${PROJECT_ID}" \
   --source=. \
@@ -57,7 +65,7 @@ gcloud run deploy "${SERVICE_NAME}" \
   --min-instances=1 \
   --max-instances=5 \
   --memory=1Gi \
-  --set-env-vars="GOOGLE_CLOUD_PROJECT=${PROJECT_ID},BQ_DATASET=a4i_food" \
+  --set-env-vars="GOOGLE_CLOUD_PROJECT=${PROJECT_ID},BQ_DATASET=a4i_food,MATCH_SOURCE=${MATCH_SOURCE}" \
   --quiet
 
 SERVICE_URL="$(gcloud run services describe "${SERVICE_NAME}" \
