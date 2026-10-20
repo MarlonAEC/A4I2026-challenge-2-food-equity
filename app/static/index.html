@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>RescueDispatch — Extra food, matched before the clock runs out</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230f1613'/%3E%3Ccircle cx='32' cy='32' r='14' fill='%2315803d'/%3E%3Ccircle cx='32' cy='32' r='6' fill='%23ffffff'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700&family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&display=swap">
@@ -74,8 +75,23 @@ button { font: inherit; cursor: pointer; }
 button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visible { outline: 2px solid var(--donor); outline-offset: 2px; }
 .num { font-variant-numeric: tabular-nums; }
 
-.app { display: grid; grid-template-columns: 330px minmax(0, 1fr) 400px; grid-template-rows: auto minmax(0, 1fr); gap: 14px; height: 100%; min-height: 0; }
-header.top { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.app { display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 14px; height: 100%; min-height: 0; }
+header.top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.summary { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; }
+.summary .offer { font-size: 13px; color: var(--muted); max-width: 46ch; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.summary .offer b { color: var(--fg); font-weight: 600; }
+.btn-change { font-size: 12.5px; font-weight: 600; border: 1px solid var(--line); background: var(--surface); color: var(--fg); border-radius: 999px; padding: 7px 12px; display: inline-flex; align-items: center; gap: 6px; }
+.btn-change:hover { border-color: var(--accent); }
+
+/* Screen 1: the offer (opens here). Screen 2: results, tabs left + map right. */
+.screen-offer { min-height: 0; overflow: auto; display: grid; justify-items: center; align-content: start; padding-top: 2vh; }
+.onboard { width: min(680px, 100%); display: grid; gap: 14px; }
+.onboard .hero h2 { font-size: 26px; font-weight: 700; letter-spacing: -0.02em; }
+.onboard .hero p { margin: 4px 0 0; color: var(--muted); font-size: 14px; }
+.onboard .scenarios { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.onboard .scenario { padding: 12px; }
+.onboard label.f textarea { font-size: 15px; padding: 12px; }
+.screen-results { display: grid; grid-template-columns: 440px minmax(0, 1fr); gap: 14px; min-height: 0; height: 100%; }
 .brand { display: flex; align-items: center; gap: 10px; }
 .brand .mark { width: 34px; height: 34px; border-radius: 10px; background: var(--accent); color: var(--on-accent); display: grid; place-items: center; font-family: var(--font-display); font-weight: 700; }
 .brand h1 { font-size: 18px; font-weight: 700; letter-spacing: -0.01em; }
@@ -203,26 +219,27 @@ label.f input, label.f textarea { width: 100%; font: inherit; font-size: 13.5px;
 .error { border-color: var(--bad); }
 .error b { color: var(--bad); }
 
-@media (max-width: 1180px) {
-  .app { grid-template-columns: 300px minmax(0, 1fr); grid-template-rows: auto minmax(360px, 48vh) auto; height: auto; }
-  .mapwrap { grid-column: 2; min-height: 360px; }
-  .rail { grid-column: 1; grid-row: 2 / 4; }
-  .stack { grid-column: 2; overflow: visible; }
+@media (max-width: 1000px) {
   html, body { height: auto; }
+  .app { height: auto; }
+  .screen-results { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(340px, 48vh) auto; height: auto; }
+  .mapwrap { order: -1; min-height: 340px; }
+  .stack { overflow: visible; }
 }
 @media (max-width: 760px) {
-  .app { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto minmax(300px, 55vh) auto; }
-  .rail, .mapwrap, .stack { grid-column: 1; grid-row: auto; }
+  .onboard .scenarios { grid-template-columns: 1fr; }
+  .onboard .hero h2 { font-size: 22px; }
   .mapwrap { min-height: 300px; }
   .lights, .actions, .audit { grid-template-columns: 1fr; }
   .clock .v { font-size: 22px; }
+  .summary .offer { max-width: 100%; white-space: normal; }
 }
 @media (prefers-reduced-motion: reduce) { .toast { transition: none; } .pin-wrap .ring { animation: none; opacity: 0.18; transform: none; } }
 </style>
 </head>
 <body>
 
-<div class="app">
+<div class="app" id="app">
   <header class="top">
     <div class="brand">
       <div class="mark">R</div>
@@ -231,6 +248,10 @@ label.f input, label.f textarea { width: 100%; font: inherit; font-size: 13.5px;
         <p>Extra food, matched to a pantry with a fridge, before the clock runs out.</p>
       </div>
     </div>
+    <div class="summary" id="summary" hidden>
+      <span class="offer" id="offerSummary"></span>
+      <button class="btn-change" type="button" id="changeBtn">✏️ Change the offer</button>
+    </div>
     <div class="chips">
       <span class="chip">📍 <b>Chicago</b> · 183 pantries</span>
       <span class="chip" id="srcChip">🧪 <b>Demo data</b></span>
@@ -238,10 +259,16 @@ label.f input, label.f textarea { width: 100%; font: inherit; font-size: 13.5px;
     </div>
   </header>
 
-  <aside class="rail">
+  <!-- Screen 1: We have extra food -->
+  <section class="screen-offer" id="screenOffer">
+   <div class="onboard">
+    <div class="hero">
+      <h2>We have extra food</h2>
+      <p>Tell us what needs to go and how long it has. We'll find who can take it, keep it cold, and pick it up in time.</p>
+    </div>
     <section class="card">
-      <h2><span class="step">1</span> We have extra food</h2>
-      <p class="sub">Pick a common call, or type what needs to go.</p>
+      <h2><span class="step">Quick calls</span></h2>
+      <p class="sub">One tap starts the search.</p>
       <div class="scenarios" id="scenarios">
         <button class="scenario" type="button" data-id="spinach" aria-pressed="true">
           <span class="t">🥬 Grocer spinach call</span>
@@ -274,26 +301,30 @@ label.f input, label.f textarea { width: 100%; font: inherit; font-size: 13.5px;
       <label class="check"><input id="req_van" type="checkbox" checked> 🚐 Pantry picks it up in their own van</label>
       <button class="primary" type="button" id="findBtn">🔍 Find who can take it</button>
     </section>
-  </aside>
-
-  <section class="mapwrap" aria-label="Chicago rescue map">
-    <div id="map"></div>
-    <div class="clock">
-      <div class="k">⏱️ Time left on the clock</div>
-      <div class="v num" id="clockV">—</div>
-      <div class="by" id="clockBy">Waiting for an offer</div>
-    </div>
-    <div class="legend">
-      <span><i style="background: var(--donor)"></i> Pickup dock</span>
-      <span><i style="background: var(--good)"></i> #1 can take it</span>
-      <span><i style="background: var(--warn)"></i> Backups</span>
-      <span><i style="background: var(--bad)"></i> Skipped</span>
-    </div>
+   </div>
   </section>
 
-  <main class="stack" id="stack">
-    <section class="card"><p class="empty"><span class="spin"></span>Finding who can take it…</p></section>
-  </main>
+  <!-- Screen 2: who can take it. Tabs left, map right. -->
+  <section class="screen-results" id="screenResults" hidden>
+    <main class="stack" id="stack">
+      <section class="card"><p class="empty"><span class="spin"></span>Finding who can take it…</p></section>
+    </main>
+
+    <section class="mapwrap" aria-label="Chicago rescue map">
+      <div id="map"></div>
+      <div class="clock">
+        <div class="k">⏱️ Time left on the clock</div>
+        <div class="v num" id="clockV">—</div>
+        <div class="by" id="clockBy">Waiting for an offer</div>
+      </div>
+      <div class="legend">
+        <span><i style="background: var(--donor)"></i> Pickup dock</span>
+        <span><i style="background: var(--good)"></i> #1 can take it</span>
+        <span><i style="background: var(--warn)"></i> Backups</span>
+        <span><i style="background: var(--bad)"></i> Skipped</span>
+      </div>
+    </section>
+  </section>
 </div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
@@ -345,8 +376,25 @@ function readForm() {
   return { posting_text: $("posting_text").value.trim(), pallets_offered: parseInt($("pallets").value || "1", 10), donor_deadline_hours: parseFloat($("hours").value || "6"),
     requires_cold_storage: $("req_cold").checked, requires_frozen: false, requires_pickup_van: $("req_van").checked, donor_lat: DONOR.lat, donor_lon: DONOR.lon, declined_recipient_names: declined };
 }
+function showScreen(name) {
+  const results = name === "results";
+  $("screenOffer").hidden = results;
+  $("screenResults").hidden = !results;
+  $("summary").hidden = !results;
+  $("app").dataset.screen = name;
+  if (results) { initMap(); setTimeout(() => map && map.invalidateSize(), 60); }
+}
+function summarize(req) {
+  const bits = [`<b>${esc(req.posting_text)}</b>`, `${req.pallets_offered} pallet${req.pallets_offered > 1 ? "s" : ""}`, `needs to go in ${hrs(req.donor_deadline_hours)}`];
+  if (req.requires_cold_storage) bits.push("❄️ keep it cold");
+  if (req.requires_pickup_van) bits.push("🚐 they pick up");
+  $("offerSummary").innerHTML = bits.join(" · ");
+}
 async function run() {
   lastReq = readForm();
+  if (!lastReq.posting_text) { $("posting_text").focus(); toast("Tell us what the food is first."); return; }
+  summarize(lastReq);
+  showScreen("results");
   $("findBtn").disabled = true;
   $("stack").innerHTML = `<section class="card"><p class="empty"><span class="spin"></span>Checking who can keep it cold, pick it up, and get there in time…</p></section>`;
   try {
@@ -588,9 +636,10 @@ $("scenarios").addEventListener("click", e => {
   declined = []; run();
 });
 $("findBtn").addEventListener("click", () => { declined = []; run(); });
-initMap();
+$("changeBtn").addEventListener("click", () => { showScreen("offer"); $("posting_text").focus(); });
+$("posting_text").addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); declined = []; run(); } });
 loadEquity();
-run();
+showScreen("offer");
 </script>
 </body>
 </html>
