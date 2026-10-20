@@ -20,3 +20,21 @@ interrupting it breaks nothing.
 **Use the notebook if you can.** This script gets you the tables without the teaching, and one
 piece of that teaching—which half of the recipient data is real and which half is generated—is
 something judges look for directly.
+
+## `generate_match_briefs.py`
+
+Writes a Match Brief as Markdown for each posting: the #1 recipient with its address, why them,
+what they can take, the clock and margin, the neighborhood it helps, a ready-to-send outreach
+message, and the next two options. It runs the same `find_and_rank_recipients` the app and agent
+use, so the brief never disagrees with them.
+
+```bash
+python3 scripts/generate_match_briefs.py                      # all 10 canonical postings -> briefs/
+python3 scripts/generate_match_briefs.py --posting "40 lbs of frozen chicken thighs" --hours 10
+python3 scripts/generate_match_briefs.py --donor-address "1200 W Fulton Market" --out /tmp/briefs
+```
+
+Each run writes `briefs/<id>-<food>.md` plus `briefs/README.md` as an index. Clock times are
+computed from the moment the script runs. If BigQuery is unreachable the briefs are built from the
+offline demo corpus and say so at the top. Neighborhoods come from
+`data/chicago_community_areas.json` (City of Chicago community area boundaries, simplified).
