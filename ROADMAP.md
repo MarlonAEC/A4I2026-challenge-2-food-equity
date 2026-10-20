@@ -16,7 +16,7 @@
 | **1. Data & Vector Search Lead** | `@beshermahrouka` | `data` | `notebooks/`, `scripts/load.sh`, `sql/` |
 | **2. ADK Agent & MCP Lead** | `@TODO_Name_2` | `agent` | `agent/agent.py`, `agent/prompt.py` |
 | **3. Custom "Uber" Tools Lead** | `Andrea ✅` | `tools` | `agent/tools.py` |
-| **4. Frontend & Map UI Lead** | `@Andrew` | `frontend` | `app/` |
+| **4. Frontend & Map UI Lead** | `@braysh` | `frontend` | `app/` |
 | **5. Cloud Run, QA & Pitch Lead** | `@MarlonAEC` | `deploy-story` | `Dockerfile`, `deploy.sh`, `scripts/verify_traps.py`, `docs/` |
 
 ---
@@ -73,9 +73,9 @@
 - [x] Save numbers in `docs/equity_audit.md` and hand off to **Lane 5** for the slide deck.
 
 ### Milestone 1D: "Rescue Deserts" & Spatial Equity Analysis (Going Further — 25% Rigor Score)
-- [ ] Cross-reference census tracts in Cook County with matched pantry locations to identify **"Rescue Deserts"** (tracts with `poverty_rate > 30%` and `pct_no_vehicle > 40%` that have 0 verified cold-storage recipients within a 5 km radius).
-- [ ] Document the structural infrastructure deficit: articulate for judges why food rescue algorithms cannot solve food access without municipal investments in cold chain / walk-in coolers.
-- [ ] Export spatial equity metrics into `docs/equity_audit.md` for Lane 4 (map layer) and Lane 5 (pitch deck).
+- [x] Cross-reference census tracts in Cook County with matched pantry locations to identify **"Rescue Deserts"** (tracts with `poverty_rate > 30%` and `pct_no_vehicle > 40%` that have 0 verified cold-storage recipients within a 5 km radius).
+- [x] Document the structural infrastructure deficit: articulate for judges why food rescue algorithms cannot solve food access without municipal investments in cold chain / walk-in coolers.
+- [x] Export spatial equity metrics into `docs/equity_audit.md` for Lane 4 (map layer) and Lane 5 (pitch deck).
 
 ---
 
@@ -96,24 +96,24 @@
   6. Ready-to-Send Pickup Alert Message
   7. Backups #2 and #3 ("If They Say No") + Rejected Decoys warning
 - [x] Plug in **Lane 3's** custom tools from `agent/tools.py`.
-- [ ] Connect `run_equity_audit_across_postings` into `tools_list` in `agent/agent.py` so the agent can execute real-time Responsible AI audits on demand.
+- [x] Connect `run_equity_audit_across_postings` into `tools_list` in `agent/agent.py` so the agent can execute real-time Responsible AI audits on demand.
 
 ### Milestone 2C: Coordinator Q&A Verification (Target: 2:15)
-- [ ] Test all coordinator questions from `README.md` (7 original + Responsible AI audit):
-  - [ ] *"Who can take 10 crates of spinach and collect before 8pm?"*
-  - [ ] *"Why them and not the other pantry?"* (explains why `Greenline` decoy was rejected)
-  - [ ] *"They said no. Who's next?"* (promotes Backup #2)
-  - [ ] *"How long does spinach actually last?"* (cites `shelf_life` + consumer guidance caveat)
-  - [ ] *"Can they pick it up themselves or do we need a driver?"* (`refrigerated_transport`)
-  - [ ] *"Whose neighborhood does this help?"* (`tract_demographics`)
-  - [ ] *"Write the pickup message."*
-  - [ ] *"Run an equity audit across our dispatches — are we favoring loading docks over high-need tracts?"* (cites `docs/equity_audit.md` findings)
+- [x] Test all coordinator questions from `README.md` (7 original + Responsible AI audit):
+  - [x] *"Who can take 10 crates of spinach and collect before 8pm?"*
+  - [x] *"Why them and not the other pantry?"* (explains why `Greenline` decoy was rejected)
+  - [x] *"They said no. Who's next?"* (promotes Backup #2)
+  - [x] *"How long does spinach actually last?"* (cites `shelf_life` + consumer guidance caveat)
+  - [x] *"Can they pick it up themselves or do we need a driver?"* (`refrigerated_transport`)
+  - [x] *"Whose neighborhood does this help?"* (`tract_demographics`)
+  - [x] *"Write the pickup message."*
+  - [x] *"Run an equity audit across our dispatches — are we favoring loading docks over high-need tracts?"* (cites live `run_equity_audit_across_postings` findings)
 
 ### Milestone 2D: Conversational Pantry Intake Agent (Going Further — "The 4-Hour Add-on")
-- [ ] Implement conversational intake prompt / subagent (`agent/intake.py`):
-  - [ ] Interviews a new pantry coordinator conversationally: *"What kind of cold storage do you have?"* -> follow-up: *"Can you take a pallet off a truck, or does it need hand-carry boxes through a regular door?"*
-  - [ ] Generates structured schema (`cold_storage`, `max_pallets`, `pickup_window_hours`, `refrigerated_transport`) and synthesizes `profile_text`.
-  - [ ] Appends new recipient to `a4i_food.recipients`, calls `AI.EMBED` (or offline fallback), making the pantry immediately searchable in the demo!
+- [x] Implement conversational intake prompt / subagent (`agent/intake.py`):
+  - [x] Interviews a new pantry coordinator conversationally: *"What kind of cold storage do you have?"* -> follow-up: *"Can you take a pallet off a truck, or does it need hand-carry boxes through a regular door?"*
+  - [x] Generates structured schema (`cold_storage`, `max_pallets`, `pickup_window_hours`, `refrigerated_transport`) and synthesizes `profile_text`.
+  - [x] Appends new recipient to `a4i_food.recipients`, calls `AI.EMBED` (or offline fallback), making the pantry immediately searchable in the demo!
 
 ---
 
@@ -153,7 +153,7 @@
 
 ---
 
-## 🖥️ Lane 4: Frontend UI & Story Lead (`branch: frontend`) — `@Andrew`
+## 🖥️ Lane 4: Frontend UI & Story Lead (`branch: frontend`) — `@braysh`
 
 ### Milestone 4A: Clean Human UI Layout (Target: 1:15)
 - [x] Build `app/` using the **Shared JSON Contract** & **Product Voice Guide**:

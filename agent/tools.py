@@ -34,6 +34,11 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 FOODKEEPER_JSON_PATH = REPO_ROOT / "data" / "foodkeeper.json"
 PROFILE_COMPONENTS_PATH = REPO_ROOT / "data" / "profile_components.json"
 MATCH_SQL_PATH = REPO_ROOT / "sql" / "match_recipients.sql"
+# Pantries onboarded by the conversational intake agent (agent/intake.py) while BigQuery is
+# unreachable. Appended to the local fallback corpus so they are searchable immediately.
+INTAKE_REGISTRY_PATH = Path(
+    os.environ.get("INTAKE_REGISTRY_PATH", str(REPO_ROOT / "data" / "intake_recipients.json"))
+)
 
 DEFAULT_DATASET = os.environ.get("BQ_DATASET", "a4i_food")
 DEFAULT_LOCATION = os.environ.get("BQ_LOCATION", "US")
@@ -549,85 +554,127 @@ def check_shelf_life_clock(
 
     products = _load_local_foodkeeper()
 
+    # Canonical USDA synonym mappings from Notebook Section 10
+    preferred_name: str | None = None
+    preferred_subtitle_token: str | None = None
+
+    if "spinach" in text_lower or "salad greens" in text_lower or "leafy greens" in text_lower:
+        preferred_name = "Lettuce"
+        preferred_subtitle_token = "spinach"
+    elif "milk" in text_lower:
+        preferred_name = "Milk"
+        preferred_subtitle_token = "plain"
+    elif "yogurt" in text_lower:
+        preferred_name = "Yogurt"
+    elif "bread" in text_lower or "pastries" in text_lower or "loaves" in text_lower:
+        preferred_name = "Bread"
+        preferred_subtitle_token = "commercial"
+    elif "sandwich" in text_lower or "deli" in text_lower or "prepared" in text_lower:
+        preferred_name = "Leftovers"
+    elif "potato" in text_lower:
+        preferred_name = "Potatoes"
+    elif "blueberr" in text_lower or "berries" in text_lower:
+        preferred_name = "Blueberries"
+    elif "winter squash" in text_lower or "squash" in text_lower:
+        preferred_name = "Spaghetti squash"
+    elif "nutritional supplement" in text_lower or "formula" in text_lower:
+        preferred_name = "Formula"
+
     # High-precision domain rules + subtitle/keyword scoring over the 661 USDA products
     matched_rec: dict[str, Any] | None = None
 
-    # Check if BigQuery shelf_life table has a direct match or embedding search first
+    # Check if BigQuery shelf_life table has a direct match
     client = _get_bq_client()
-    if client is not None and products:
+    if client is not None:
         try:
             project_id = client.project
+            from google.cloud import bigquery  # type: ignore
+
+            probe = (
+                preferred_name.lower()
+                if preferred_name
+                else ("spinach" if "spinach" in text_lower else text_lower.split(",")[0][:30])
+            )
+            pref_name_val = preferred_name.lower() if preferred_name else ""
+            pref_sub_val = preferred_subtitle_token.lower() if preferred_subtitle_token else ""
+            pref_sub_pat = f"%{pref_sub_val}%" if pref_sub_val else ""
+
             sql = f"""
             SELECT product_id, product_name, product_subtitle, keywords, category,
                    refrigerated_hours, refrigerated_note, pantry_hours, pantry_note
             FROM `{project_id}.{DEFAULT_DATASET}.shelf_life`
-            WHERE LOWER(product_name) LIKE @q
+            WHERE (@pref_name != '' AND LOWER(product_name) = @pref_name)
+               OR LOWER(product_name) LIKE @q
                OR LOWER(product_subtitle) LIKE @q
                OR LOWER(keywords) LIKE @q
-            LIMIT 5
+            ORDER BY
+              CASE
+                WHEN @pref_name != '' AND LOWER(product_name) = @pref_name AND @pref_sub != '' AND LOWER(product_subtitle) LIKE @pref_sub THEN 0
+                WHEN @pref_name != '' AND LOWER(product_name) = @pref_name THEN 1
+                WHEN @pref_sub != '' AND LOWER(product_subtitle) LIKE @pref_sub THEN 2
+                WHEN LOWER(product_name) LIKE @q THEN 3
+                ELSE 4
+              END ASC,
+              product_id ASC
+            LIMIT 10
             """
-            from google.cloud import bigquery  # type: ignore
-
-            # Extract key food noun for BQ query
-            probe = "spinach" if "spinach" in text_lower else text_lower.split(",")[0][:30]
             job_config = bigquery.QueryJobConfig(
                 query_parameters=[
-                    bigquery.ScalarQueryParameter("q", "STRING", f"%{probe.strip()}%")
+                    bigquery.ScalarQueryParameter("pref_name", "STRING", pref_name_val),
+                    bigquery.ScalarQueryParameter("pref_sub", "STRING", pref_sub_pat),
+                    bigquery.ScalarQueryParameter("q", "STRING", f"%{probe.strip()}%"),
                 ]
             )
             rows = list(client.query(sql, job_config=job_config).result())
             if rows:
-                r0 = dict(rows[0])
-                matched_rec = {
-                    "product_id": str(r0.get("product_id", "")),
-                    "product_name": str(r0.get("product_name", "")),
-                    "product_subtitle": str(r0.get("product_subtitle", "")),
-                    "keywords": str(r0.get("keywords", "")),
-                    "category": str(r0.get("category", "")),
-                    "refrigerated_hours": (
-                        int(r0["refrigerated_hours"])
-                        if r0.get("refrigerated_hours") is not None
-                        else None
-                    ),
-                    "refrigerated_note": str(r0.get("refrigerated_note") or "ok"),
-                    "pantry_hours": (
-                        int(r0["pantry_hours"])
-                        if r0.get("pantry_hours") is not None
-                        else None
-                    ),
-                    "pantry_note": str(r0.get("pantry_note") or "ok"),
-                }
+                best_r = None
+                if preferred_name:
+                    for r in rows:
+                        r_dict = dict(r)
+                        p_name = str(r_dict.get("product_name", "")).lower()
+                        p_sub = str(r_dict.get("product_subtitle", "")).lower()
+                        p_kw = str(r_dict.get("keywords", "")).lower()
+                        if p_name == preferred_name.lower():
+                            if not preferred_subtitle_token or preferred_subtitle_token in (p_sub + " " + p_kw):
+                                best_r = r_dict
+                                break
+                    if best_r is None:
+                        for r in rows:
+                            r_dict = dict(r)
+                            if str(r_dict.get("product_name", "")).lower() == preferred_name.lower():
+                                best_r = r_dict
+                                break
+                else:
+                    best_r = dict(rows[0])
+
+                if best_r is not None and (
+                    not preferred_name
+                    or str(best_r.get("product_name", "")).lower() == preferred_name.lower()
+                ):
+                    matched_rec = {
+                        "product_id": str(best_r.get("product_id", "")),
+                        "product_name": str(best_r.get("product_name", "")),
+                        "product_subtitle": str(best_r.get("product_subtitle", "")),
+                        "keywords": str(best_r.get("keywords", "")),
+                        "category": str(best_r.get("category", "")),
+                        "refrigerated_hours": (
+                            int(best_r["refrigerated_hours"])
+                            if best_r.get("refrigerated_hours") is not None
+                            else None
+                        ),
+                        "refrigerated_note": str(best_r.get("refrigerated_note") or "ok"),
+                        "pantry_hours": (
+                            int(best_r["pantry_hours"])
+                            if best_r.get("pantry_hours") is not None
+                            else None
+                        ),
+                        "pantry_note": str(best_r.get("pantry_note") or "ok"),
+                    }
         except Exception:
             matched_rec = None
 
-    # Local semantic + subtitle/keyword resolver (handles all 661 FoodKeeper entries)
+    # Local fallback using parsed products from data/foodkeeper.json
     if matched_rec is None and products:
-        # Check explicit canonical synonyms from Notebook Section 10 first
-        preferred_name: str | None = None
-        preferred_subtitle_token: str | None = None
-
-        if "spinach" in text_lower or "salad greens" in text_lower or "leafy greens" in text_lower:
-            preferred_name = "Lettuce"
-            preferred_subtitle_token = "spinach"
-        elif "milk" in text_lower:
-            preferred_name = "Milk"
-            preferred_subtitle_token = "plain"
-        elif "yogurt" in text_lower:
-            preferred_name = "Yogurt"
-        elif "bread" in text_lower or "pastries" in text_lower or "loaves" in text_lower:
-            preferred_name = "Bread"
-            preferred_subtitle_token = "commercial"
-        elif "sandwich" in text_lower or "deli" in text_lower or "prepared" in text_lower:
-            preferred_name = "Leftovers"
-        elif "potato" in text_lower:
-            preferred_name = "Potatoes"
-        elif "blueberr" in text_lower or "berries" in text_lower:
-            preferred_name = "Blueberries"
-        elif "winter squash" in text_lower or "squash" in text_lower:
-            preferred_name = "Spaghetti squash"
-        elif "nutritional supplement" in text_lower or "formula" in text_lower:
-            preferred_name = "Formula"
-
         if preferred_name:
             for rec in products:
                 if rec["product_name"].lower() == preferred_name.lower():
@@ -1287,7 +1334,18 @@ def _build_local_fallback_corpus() -> list[dict[str, Any]]:
         },
     ]
 
-    return planted_cases + generated_orgs
+    return planted_cases + generated_orgs + _load_intake_registry()
+
+
+def _load_intake_registry() -> list[dict[str, Any]]:
+    """Load pantries registered offline by the intake agent (empty list if none yet)."""
+    if not INTAKE_REGISTRY_PATH.exists():
+        return []
+    try:
+        rows = json.loads(INTAKE_REGISTRY_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    return [dict(r) for r in rows] if isinstance(rows, list) else []
 
 
 def _semantic_similarity_local(query_text: str, profile_text: str) -> float:
@@ -2012,6 +2070,8 @@ def find_and_rank_recipients(
                 "frozen_storage": bool(c.get("frozen_storage")),
                 "refrigerated_transport": bool(c.get("refrigerated_transport")),
                 "max_pallets": int(c.get("max_pallets") or 1),
+                "pallets_allocated": min(pallets_needed, int(c.get("max_pallets") or 1)),
+                "service_days": str(c.get("service_days") or "Monday through Friday"),
                 "pickup_window_hours": int(c["effective_pickup_hours"]),
                 "margin_hours": c["margin_hours"],
                 "profile_text": str(c.get("profile_text") or ""),
@@ -2067,13 +2127,17 @@ def find_and_rank_recipients(
     return {
         "posting_summary": {
             "food_item": clock["food_item"],
+            "posting_text": posting_text,
+            "pallets_offered": pallets_needed,
             "pallets_estimate": pallets_needed,
             "requires_cold_storage": need_cold,
             "requires_frozen": need_frozen,
+            "requires_pickup_van": requires_pickup_van,
             "donor_deadline_hours": clock["donor_deadline_hours"],
             "usda_shelf_life_hours": clock["usda_shelf_life_hours"],
             "effective_window_hours": clock["effective_window_hours"],
             "shelf_life_note": clock["shelf_life_note"],
+            "donor": {"lat": donor_lat, "lon": donor_lon},
         },
         "matches": matches_out,
         "rejected_decoys": rejected_decoys,
