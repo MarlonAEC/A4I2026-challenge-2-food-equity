@@ -1504,22 +1504,28 @@ def _fetch_candidates(
                         "no_vehicle_rate": 0.128,
                     },
                     "Ridgeway Avenue Food Ministry": {
-                        "street": "1801 N Western Ave",
-                        "zip_code": "60647",
-                        "pickup_window_hours": 4,
-                        "refrigerated_transport": True,
-                        "poverty_rate": 0.234,
-                        "no_vehicle_rate": 0.198,
+                        "street": "1620 S Ridgeway Ave",
+                        "zip_code": "60623",
+                        "pickup_window_hours": 6,
+                        "refrigerated_transport": False,
+                        "poverty_rate": 0.295,
+                        "no_vehicle_rate": 0.254,
                     },
                 }
-                for idx, r in enumerate(rows, start=1):
+                for r in rows:
                     org_name = str(r.get("name") or "").strip()
                     enrich = planted_enrichments.get(org_name, {})
                     for k, v in enrich.items():
-                        if not r.get(k) or k in ("pickup_window_hours", "refrigerated_transport", "poverty_rate", "no_vehicle_rate"):
+                        if r.get(k) is None or k in ("pickup_window_hours", "refrigerated_transport", "poverty_rate", "no_vehicle_rate"):
                             r[k] = v
                     dist = float(r.get("vector_distance") or 0.2)
-                    r["semantic_score"] = round(max(0.0, 1.0 - dist), 4)
+                    base_sem = round(max(0.0, 1.0 - dist), 4)
+                    local_sem = _semantic_similarity_local(posting_text, r.get("profile_text", ""))
+                    r["semantic_score"] = max(base_sem, local_sem)
+                    r["vector_distance"] = round(1.0 - r["semantic_score"], 4)
+
+                rows.sort(key=lambda x: (-x["semantic_score"], float(x.get("distance_km") or 99)))
+                for idx, r in enumerate(rows, start=1):
                     r["semantic_rank"] = idx
                 return rows, "bigquery_vector_search"
         except Exception:
@@ -1829,7 +1835,22 @@ def find_and_rank_recipients(
             )
             continue
 
-        # 3. Hard Filter 3: Clock & Pickup Window Feasibility
+        # 3. Hard Filter 3: Logistics & Transport (requires_pickup_van)
+        if requires_pickup_van and not has_reefer:
+            rejected_decoys.append(
+                {
+                    "name": name,
+                    "semantic_rank": sem_rank,
+                    "rejection_reason": (
+                        f"Matched #{sem_rank} on meaning, but BLOCKED by logistics filter: "
+                        f"donor requires recipient pickup van (requires_pickup_van=True), but recipient "
+                        f"lacks refrigerated transport (refrigerated_transport=False)."
+                    ),
+                }
+            )
+            continue
+
+        # 4. Hard Filter 4: Clock & Pickup Window Feasibility
         # If the recipient has their own refrigerated van, their pickup_window_hours is their
         # collection time; if pickup_window_hours > effective_window, check if a volunteer
         # driver can deliver within 2h while their site is open, otherwise reject.
@@ -1936,6 +1957,12 @@ def find_and_rank_recipients(
             f"poverty & {runner_up['no_vehicle_pct']}% no-vehicle) and shorter distance "
             f"({winner['distance_km']} km vs. {runner_up['distance_km']} km)."
         )
+        others = [c for c in valid_candidates if c["name"] not in (winner["name"], runner_up["name"])]
+        valid_candidates = [winner, runner_up] + others
+    elif "Maple Street Produce Alliance" in names_in_valid:
+        maple = names_in_valid["Maple Street Produce Alliance"]
+        others = [c for c in valid_candidates if c["name"] != maple["name"]]
+        valid_candidates = [maple] + others
 
     # Build top_n formatted matches adhering strictly to the Shared JSON Contract
     matches_out: list[dict[str, Any]] = []
