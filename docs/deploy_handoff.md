@@ -61,13 +61,3 @@ If BigQuery says `recipient_embeddings` is not found, change that one table name
 **What to say over it (plain words):**
 
 > "This is BigQuery doing the search for real. Gemini turns the grocer's words into numbers, and vector search finds the ten pantries whose own description means the closest thing. That's only a shortlist. Meaning alone can't tell who has a fridge: look at the cold storage column. So the next step checks every pantry on the shortlist: can they keep it cold, do they have a van, can they get there before the clock runs out. Those checks pick the pantry. The app you're about to see runs on our demo set, marked **Demo data** on screen, so all four tricky cases show up every time."
-
-## Also available (not needed for the console)
-
-Andrew has a Track B branch, `bud/track-b-brief-8d5fc5`. It is on his machine only, not pushed and not merged. It has:
-
-- the live search rewritten onto Lane 1's view `a4i_food.v_recipient_candidates` with real neighbourhood numbers
-- `POST /api/brief`: the ADK agent writes the Match Brief, with a fixed template when Gemini can't be reached
-- `GET /api/equity_audit`
-
-Lanes 2, 3 and 5 can ask Andrew to push it if they want it. The console works without it. If you merge it, keep the `MATCH_SOURCE` check on the `if project_id ...` line in `agent/tools.py`. On Cloud Run the brief needs the service account to have **Vertex AI User**, and `BRIEF_FORCE_TEMPLATE=1` keeps the brief text the same on every run for recording.
