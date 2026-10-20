@@ -25,3 +25,6 @@ bin/toolbox
 data/*.csv
 data/*.parquet
 !data/profile_components.json
+
+# Pantries registered offline by the intake agent (agent/intake.py)
+data/intake_recipients.json

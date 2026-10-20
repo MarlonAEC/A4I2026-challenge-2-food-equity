@@ -92,10 +92,10 @@
   - [ ] *"Run an equity audit across our dispatches — are we favoring loading docks over high-need tracts?"* (cites `docs/equity_audit.md` findings)
 
 ### Milestone 2D: Conversational Pantry Intake Agent (Going Further — "The 4-Hour Add-on")
-- [ ] Implement conversational intake prompt / subagent (`agent/intake.py`):
-  - [ ] Interviews a new pantry coordinator conversationally: *"What kind of cold storage do you have?"* -> follow-up: *"Can you take a pallet off a truck, or does it need hand-carry boxes through a regular door?"*
-  - [ ] Generates structured schema (`cold_storage`, `max_pallets`, `pickup_window_hours`, `refrigerated_transport`) and synthesizes `profile_text`.
-  - [ ] Appends new recipient to `a4i_food.recipients`, calls `AI.EMBED` (or offline fallback), making the pantry immediately searchable in the demo!
+- [x] Implement conversational intake prompt / subagent (`agent/intake.py`):
+  - [x] Interviews a new pantry coordinator conversationally: *"What kind of cold storage do you have?"* -> follow-up: *"Can you take a pallet off a truck, or does it need hand-carry boxes through a regular door?"*
+  - [x] Generates structured schema (`cold_storage`, `max_pallets`, `pickup_window_hours`, `refrigerated_transport`) and synthesizes `profile_text`.
+  - [x] Appends new recipient to `a4i_food.recipients`, calls `AI.EMBED` (or offline fallback), making the pantry immediately searchable in the demo!
 
 ---
 
