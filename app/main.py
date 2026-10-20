@@ -10,13 +10,20 @@ File ownership (see docs/frontend_plan.md):
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+
+# Load .env from project root or current working directory
+_ROOT_DIR = Path(__file__).resolve().parent.parent if "__file__" in globals() else Path.cwd()
+load_dotenv(_ROOT_DIR / ".env")
+load_dotenv()
 
 from agent.tools import check_shelf_life_clock, find_and_rank_recipients
 
@@ -41,10 +48,15 @@ class MatchRequest(BaseModel):
     donor_lat: float = 41.8781
     donor_lon: float = -87.6298
     declined_recipient_names: list[str] = []
+    api_key: str | None = None
 
 
 @app.post("/api/match")
 def api_match(req: MatchRequest) -> dict[str, Any]:
+    if req.api_key:
+        os.environ["GEMINI_API_KEY"] = req.api_key.strip()
+        os.environ["GOOGLE_API_KEY"] = req.api_key.strip()
+
     clock = check_shelf_life_clock(
         food_item=req.posting_text,
         donor_deadline_hours=req.donor_deadline_hours,

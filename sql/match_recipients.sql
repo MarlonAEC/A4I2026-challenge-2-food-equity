@@ -1,35 +1,20 @@
 -- ============================================================================
--- Lane 1 (Data & Vector Search Lead): Core Candidate Generation & Vector Search
--- ============================================================================
--- Prerequisites (from notebooks/c2_01_load_explore.ipynb Section 14):
---   1. Dataset `a4i_food` loaded via notebook or `bash scripts/load.sh <metro>`
---   2. Embedding column `embedding` materialized on `a4i_food.recipients`
---      using AI.EMBED with endpoint 'gemini-embedding-2' (or text-embedding-005)
+-- Lane 1 & 3: Live Vector Search + Spatial Geo Distance + Census Tract Need Join
+-- Connects directly to `a4i_food.recipient_embeddings` (created in queries/vector_search_reference.sql)
+-- and `a4i_food.tract_demographics`.
 -- ============================================================================
 
--- Step 1: Materialize embeddings on recipients (run once if not already done by notebook)
--- CREATE OR REPLACE TABLE `a4i_food.recipients_embedded` AS
--- SELECT
---   r.*,
---   AI.EMBED(
---     MODEL `a4i_food.embedding_model`,
---     CONTENT => r.profile_text
---   ).result AS embedding
--- FROM `a4i_food.recipients` AS r;
-
--- Step 2: Parameterized Vector Search + Geo Distance + Tract Need Join
--- Note: use_brute_force=true is required for small (<500 row) metro tables in BigQuery
-WITH semantic_candidates AS (
+WITH vector_candidates AS (
   SELECT
     base.recipient_id,
-    base.EIN,
-    base.NAME AS org_name,
-    base.STREET AS street,
-    base.CITY AS city,
-    base.STATE AS state,
-    base.ZIP5 AS zip_code,
-    base.zip_lat AS lat,
-    base.zip_lon AS lon,
+    base.ein,
+    base.name,
+    base.street,
+    base.city,
+    base.state,
+    base.zip_code,
+    base.latitude AS lat,
+    base.longitude AS lon,
     base.archetype,
     base.archetype_label,
     base.cold_storage,
@@ -44,12 +29,12 @@ WITH semantic_candidates AS (
     base.service_days,
     base.profile_text,
     base.profile_source,
-    distance AS cosine_distance,
+    distance,
     ROUND(1.0 - distance, 4) AS semantic_similarity,
     -- Straight-line distance in km from donor coordinates (@donor_lon, @donor_lat)
     ROUND(
       ST_DISTANCE(
-        ST_GEOGPOINT(base.zip_lon, base.zip_lat),
+        ST_GEOGPOINT(base.longitude, base.latitude),
         ST_GEOGPOINT(@donor_lon, @donor_lat)
       ) / 1000.0,
       2
@@ -63,7 +48,7 @@ WITH semantic_candidates AS (
       ELSE FALSE
     END AS has_profile_contradiction
   FROM VECTOR_SEARCH(
-    TABLE `a4i_food.recipients`,
+    TABLE `a4i_food.recipient_embeddings`,
     'embedding',
     (
       SELECT AI.EMBED(
@@ -71,17 +56,41 @@ WITH semantic_candidates AS (
         endpoint => 'gemini-embedding-2'
       ).result AS embedding
     ),
-    top_k => 15,
+    top_k => 20,
     options => '{"use_brute_force": true}'
   )
+),
+nearest_tract AS (
+  SELECT
+    vc.recipient_id,
+    ARRAY_AGG(
+      STRUCT(
+        td.geo_id AS tract_geoid,
+        ROUND(COALESCE(td.poverty_rate, 0.20) * 100.0, 1) AS poverty_rate,
+        ROUND(COALESCE(td.no_vehicle_rate, 0.15) * 100.0, 1) AS pct_no_vehicle,
+        ROUND(COALESCE(td.assistance_rate, 0.18) * 100.0, 1) AS assistance_rate,
+        td.median_income
+      )
+      ORDER BY ST_DISTANCE(
+        ST_GEOGPOINT(vc.lon, vc.lat),
+        ST_GEOGPOINT(td.tract_lon, td.tract_lat)
+      ) ASC
+      LIMIT 1
+    )[OFFSET(0)] AS tract
+  FROM vector_candidates vc
+  CROSS JOIN `a4i_food.tract_demographics` td
+  WHERE vc.lon IS NOT NULL AND vc.lat IS NOT NULL
+    AND td.tract_lon IS NOT NULL AND td.tract_lat IS NOT NULL
+  GROUP BY vc.recipient_id
 )
 SELECT
-  sc.*,
-  -- Join nearest census tract need indicators from tract_demographics
-  td.tract_geoid,
-  td.poverty_rate,
-  td.pct_no_vehicle
-FROM semantic_candidates sc
-LEFT JOIN `a4i_food.tract_demographics` td
-  ON sc.zip_code = td.zip_code -- Or spatial nearest-tract join from notebook Section 11
-ORDER BY sc.cosine_distance ASC;
+  vc.*,
+  nt.tract.tract_geoid,
+  COALESCE(nt.tract.poverty_rate, 24.5) AS poverty_rate,
+  COALESCE(nt.tract.pct_no_vehicle, 21.0) AS pct_no_vehicle,
+  COALESCE(nt.tract.assistance_rate, 19.5) AS assistance_rate,
+  nt.tract.median_income
+FROM vector_candidates vc
+LEFT JOIN nearest_tract nt
+  ON vc.recipient_id = nt.recipient_id
+ORDER BY vc.distance ASC;

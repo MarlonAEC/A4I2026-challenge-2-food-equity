@@ -5,6 +5,8 @@ __pycache__/
 venv/
 env/
 .ipynb_checkpoints/
+.adk/
+agent/.adk/
 
 # Credentials - never commit these
 *.json.key
@@ -15,6 +17,9 @@ credentials.json
 # OS noise
 .DS_Store
 Thumbs.db
+
+# Downloaded MCP Toolbox binary (platform-specific, fetched by scripts/run_mcp_toolbox.sh)
+bin/toolbox
 
 # Local data pulls
 data/*.csv
