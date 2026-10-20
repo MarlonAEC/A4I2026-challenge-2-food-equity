@@ -129,9 +129,9 @@
   - [x] Output a grouped allocation schedule with individual tailored dispatch messages.
 
 ### Milestone 3E: Real-Time openFDA Food Safety Guardrail (Going Further — CC0 External API)
-- [ ] Implement `check_food_recalls(product_name)` in `agent/tools.py` using openFDA Food Enforcement API (`https://api.fda.gov/food/enforcement.json`):
-  - [ ] Checks incoming surplus postings for active food recall alerts (e.g., listeria in bagged spinach, undeclared allergens).
-  - [ ] Halts or flags high-risk surplus items before dispatching to community pantries.
+- [x] Implement `check_food_recalls(product_name)` in `agent/tools.py` using openFDA Food Enforcement API (`https://api.fda.gov/food/enforcement.json`):
+  - [x] Checks incoming surplus postings for active food recall alerts (e.g., listeria in bagged spinach, undeclared allergens).
+  - [x] Halts or flags high-risk surplus items before dispatching to community pantries.
 
 ---
 
