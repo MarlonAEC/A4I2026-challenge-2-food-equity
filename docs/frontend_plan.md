@@ -162,6 +162,7 @@ Rules:
 - `matches` is at most 3, already sorted; `rank` is 1-based. `matches[0]` is "#1 best match", the rest are "backups".
 - `rejected_decoys[].lat/lon` may be `null` on the live path if a recipient has no coordinates. The map skips null pins.
 - `data_source` drives an honesty badge in the UI: "Demo data" vs "Live: BigQuery vector search".
+- `data_source` reflects the `MATCH_SOURCE` env switch: `seeded` (what `deploy.sh` sets for the recording) skips BigQuery and always returns `seeded_fallback`; `auto` (the default when unset) tries live BigQuery first and returns `bigquery_live` when that query succeeds.
 - Track B must keep `poverty_rate`, `pct_no_vehicle` and `equity_context` populated from the view's `tract_poverty_pct` / `tract_no_vehicle_pct` on the live path. No more hard-coded 24.5 / 21.0.
 
 ### Traffic-light checks (UI derives these; no new API field)

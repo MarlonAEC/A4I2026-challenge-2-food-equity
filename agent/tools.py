@@ -143,8 +143,9 @@ def find_and_rank_recipients(
     candidates: list[dict[str, Any]] = []
     data_source = "seeded_fallback"
 
-    # Try live BigQuery VECTOR_SEARCH first if GOOGLE_CLOUD_PROJECT is configured
-    if project_id:
+    # Try live BigQuery VECTOR_SEARCH first if GOOGLE_CLOUD_PROJECT is configured.
+    # MATCH_SOURCE=seeded skips it and pins the seeded trap story (the recorded demo).
+    if project_id and os.environ.get("MATCH_SOURCE", "auto") != "seeded":
         try:
             from google.cloud import bigquery
 
