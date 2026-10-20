@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from dotenv import load_dotenv
 from fastapi import FastAPI
+
+load_dotenv()
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 

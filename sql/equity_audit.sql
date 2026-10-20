@@ -1,31 +1,71 @@
 -- ============================================================================
--- Lane 1 (Data Lead): Required Equity Audit Query (README "Auditing the outcome")
--- Compares neighborhoods of matched recipients against the metro-wide average.
+-- Lane 1 & 5: Required Equity Audit Query (Notebook Section 11)
+-- Compares census-tract demographics of matched / capable recipients against
+-- the metro-wide baseline using `a4i_food.recipient_embeddings` and
+-- `a4i_food.tract_demographics`.
 -- ============================================================================
 
 WITH metro_baseline AS (
   SELECT
-    'Metro Baseline (All Tracts)' AS cohort,
-    COUNT(*) AS tract_count,
-    ROUND(AVG(poverty_rate), 2) AS avg_poverty_rate_pct,
-    ROUND(AVG(pct_no_vehicle), 2) AS avg_no_vehicle_pct
+    '1. Metro Baseline (All Census Tracts)' AS cohort,
+    COUNT(*) AS count_units,
+    ROUND(AVG(poverty_rate) * 100.0, 1) AS avg_poverty_rate_pct,
+    ROUND(AVG(no_vehicle_rate) * 100.0, 1) AS avg_no_vehicle_pct,
+    ROUND(AVG(assistance_rate) * 100.0, 1) AS avg_public_assistance_or_snap_pct
   FROM `a4i_food.tract_demographics`
 ),
-recipient_pool AS (
+recipient_nearest_tract AS (
   SELECT
-    'All Capable Recipients (Cold Storage + Van)' AS cohort,
-    COUNT(*) AS tract_count,
-    ROUND(AVG(t.poverty_rate), 2) AS avg_poverty_rate_pct,
-    ROUND(AVG(t.pct_no_vehicle), 2) AS avg_no_vehicle_pct
-  FROM `a4i_food.recipients` r
-  JOIN `a4i_food.tract_demographics` t
-    ON ST_DWITHIN(
-         ST_GEOGPOINT(r.zip_lon, r.zip_lat),
-         ST_GEOGPOINT(t.intpt_lon, t.intpt_lat),
-         3000
-       )
-  WHERE r.cold_storage != 'none'
+    r.recipient_id,
+    r.name,
+    r.cold_storage,
+    r.refrigerated_transport,
+    r.max_pallets,
+    ARRAY_AGG(
+      STRUCT(
+        t.geo_id,
+        t.poverty_rate,
+        t.no_vehicle_rate,
+        t.assistance_rate
+      )
+      ORDER BY ST_DISTANCE(
+        ST_GEOGPOINT(r.longitude, r.latitude),
+        ST_GEOGPOINT(t.tract_lon, t.tract_lat)
+      ) ASC
+      LIMIT 1
+    )[OFFSET(0)] AS tract
+  FROM `a4i_food.recipient_embeddings` r
+  CROSS JOIN `a4i_food.tract_demographics` t
+  WHERE r.longitude IS NOT NULL AND r.latitude IS NOT NULL
+    AND t.tract_lon IS NOT NULL AND t.tract_lat IS NOT NULL
+  GROUP BY
+    r.recipient_id,
+    r.name,
+    r.cold_storage,
+    r.refrigerated_transport,
+    r.max_pallets
+),
+all_recipients_cohort AS (
+  SELECT
+    '2. All Corpus Recipients (IRS + Planted)' AS cohort,
+    COUNT(*) AS count_units,
+    ROUND(AVG(tract.poverty_rate) * 100.0, 1) AS avg_poverty_rate_pct,
+    ROUND(AVG(tract.no_vehicle_rate) * 100.0, 1) AS avg_no_vehicle_pct,
+    ROUND(AVG(tract.assistance_rate) * 100.0, 1) AS avg_public_assistance_or_snap_pct
+  FROM recipient_nearest_tract
+),
+cold_capable_cohort AS (
+  SELECT
+    '3. Cold-Chain Capable Recipients (Walk-in / Commercial + Reefer)' AS cohort,
+    COUNT(*) AS count_units,
+    ROUND(AVG(tract.poverty_rate) * 100.0, 1) AS avg_poverty_rate_pct,
+    ROUND(AVG(tract.no_vehicle_rate) * 100.0, 1) AS avg_no_vehicle_pct,
+    ROUND(AVG(tract.assistance_rate) * 100.0, 1) AS avg_public_assistance_or_snap_pct
+  FROM recipient_nearest_tract
+  WHERE cold_storage IN ('walk-in', 'commercial', 'medical', 'vehicle')
 )
 SELECT * FROM metro_baseline
 UNION ALL
-SELECT * FROM recipient_pool;
+SELECT * FROM all_recipients_cohort
+UNION ALL
+SELECT * FROM cold_capable_cohort;

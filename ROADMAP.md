@@ -128,7 +128,7 @@
 
 ### Milestone 5A: Early Cloud Run Deployment (Target: 2:00)
 - [x] Create `Dockerfile` and `deploy.sh` (`gcloud run deploy --min-instances=1`).
-- [ ] Deploy initial container to **Google Cloud Run** (`bash deploy.sh`) and share live URL with the team.
+- [x] Deploy initial container to **Google Cloud Run** (`bash deploy.sh`) and share live URL with the team.
 
 ### Milestone 5B: Judge Trap QA Checklist (Target: 3:00)
 - [x] Verify **Trap 1 (Decoy):** Spinach posting ranks a real refrigerated pantry #1 and explicitly shows `Greenline Community Pantry` rejected due to `cold_storage = 'none'` (`scripts/verify_traps.py`).

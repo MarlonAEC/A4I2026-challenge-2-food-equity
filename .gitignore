@@ -5,6 +5,8 @@ __pycache__/
 venv/
 env/
 .ipynb_checkpoints/
+.adk/
+agent/.adk/
 
 # Credentials - never commit these
 *.json.key
