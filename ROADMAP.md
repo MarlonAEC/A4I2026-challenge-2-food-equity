@@ -171,22 +171,22 @@
 
 ### Milestone 4B: Live Backend Connection & Story Integration (Target: 2:15)
 - [x] Connect UI to `POST /api/match` FastAPI endpoint.
-- [ ] Add interactive preview for Slide 5: **Conversational Pantry Intake Agent** mockup.
+- [x] Add interactive preview for Slide 5: **Conversational Pantry Intake Agent** mockup (`/intake`).
 - [ ] Align with **Lane 5** on the 5-Slide Pitch Deck and 3-minute video recording.
 
 ### Milestone 4C: Live Equity Audit Dashboard & Policy Switch (Going Further)
-*(Backend endpoint live at `/api/equity_audit`)*
-- [ ] Add an interactive **"📊 Live Equity Audit & Baseline Comparison"** view/modal in `app/main.py`:
-  - [ ] Connects to `/api/equity-audit` (backed by `run_equity_audit_across_postings()`).
-  - [ ] Displays live comparison badges: Matched Cohort (16.4% poverty, 25.8% transit insecure) vs. Metro Baseline (17.0% poverty, 21.9% transit insecure) -> **+3.9% lift in reaching vehicle-insecure households!**
-  - [ ] Visual indicator highlighting matches in high-vulnerability tracts (>40% poverty, >50% no-car).
-- [ ] Add a **Routing Policy Toggle Switch** in the UI (`[ ⚡ Logistics First ]` vs. `[ 🎯 Equity-Weighted ]`) so coordinators can see how ranking shifts between warehouse loading docks and high-need community storefronts.
+*(Backend endpoint live at `/api/equity_audit`, interactive modal live in `app/static/index.html`)*
+- [x] Add an interactive **"📊 Live Equity Audit & Baseline Comparison"** view/modal in `app/main.py` and `app/static/index.html`:
+  - [x] Connects to `/api/equity_audit` (backed by `run_equity_audit_across_postings()`).
+  - [x] Displays live comparison badges: Matched Cohort (16.4% poverty, 25.8% transit insecure) vs. Metro Baseline (17.0% poverty, 21.9% transit insecure) -> **+3.9% lift in reaching vehicle-insecure households!**
+  - [x] Visual indicator highlighting matches in high-vulnerability tracts (>40% poverty, >50% no-car).
+- [x] Add a **Routing Policy Toggle Switch** in the UI (`[ ⚡ Logistics First ]` vs. `[ 🎯 Equity-Weighted ]`) so coordinators can see how ranking shifts between warehouse loading docks and high-need community storefronts.
 
 ### Milestone 4D: Conversational Pantry Onboarding Modal (Going Further)
-*(Backend endpoints live at `/api/intake/profile`, `/api/intake/register` and `/intake`)*
-- [ ] Add a "Register New Pantry" modal in `app/main.py`:
-  - [ ] Coordinator enters natural-language description (e.g. *"St. Jude Pantry in Pilsen, walk-in cooler, no loading dock"*).
-  - [ ] Wires to Lane 2's intake agent endpoint, saves new recipient, and proves they appear immediately in subsequent vector searches.
+*(Backend endpoints live at `/api/intake/profile`, `/api/intake/register` and `/intake`, full onboarding UI in `app/static/intake.html`)*
+- [x] Add a "Register New Pantry" onboarding UI and modal at `/intake`:
+  - [x] Coordinator enters natural-language description (e.g. *"St. Jude Pantry in Pilsen, walk-in cooler, no loading dock"*).
+  - [x] Wires to Lane 2's intake agent endpoint, saves new recipient, and proves they appear immediately in subsequent vector searches.
 
 ### Milestone 4E: Live Traffic Congestion & Delay Badge (Going Further)
 - [x] Display real-time traffic status pill and route delay on Match card (e.g. `🚗 Congestion: Moderate (+9 min delay) · Live City of Chicago Traffic Tracker`).
