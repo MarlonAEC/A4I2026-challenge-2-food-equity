@@ -8,12 +8,12 @@
 ---
 
 ## 👥 Team Roster & Branches
-- **Shared GCP Project ID:** `<GCP_PROJECT_ID>`
-- **BigQuery Dataset:** `<GCP_PROJECT_ID>.a4i_food` (Region: `US`)
+- **Shared GCP Project ID:** `qwiklabs-gcp-04-300332596f08`
+- **BigQuery Dataset:** `qwiklabs-gcp-04-300332596f08.a4i_food` (Region: `US`)
 
 | Role | Teammate Name | Git Branch | Primary Folder / Files |
 | :--- | :--- | :--- | :--- |
-| **1. Data & Vector Search Lead** | `@TODO_Name_1` | `data` | `notebooks/`, `scripts/load.sh`, `sql/` |
+| **1. Data & Vector Search Lead** | `@beshermahrouka` | `data` | `notebooks/`, `scripts/load.sh`, `sql/` |
 | **2. ADK Agent & MCP Lead** | `@TODO_Name_2` | `agent` | `agent/agent.py`, `agent/prompt.py` |
 | **3. Custom "Uber" Tools Lead** | `@TODO_Name_3` | `tools` | `agent/tools.py` |
 | **4. Frontend & Map UI Lead** | `@TODO_Name_4` | `frontend` | `app/` |
@@ -23,36 +23,36 @@
 
 ## ⏱️ Phase 0: Team Kickoff (0:00 – 0:15) — *Everyone Together*
 
-- [ ] **Pick our Metro:** `____________________` *(Recommended: `chicago`, `philadelphia`, or `new-york` for high no-vehicle signal)*
-- [ ] **Pick our Track:** **Retail & Grocer Rescue** ("Uber for expiring restaurant & grocery pickups")
-- [ ] **Write our 1-sentence opening scenario:**
-  > *"We coordinate food rescue in **[CITY]**. A **[DONOR]** has just offered us **[FOOD ITEM & QUANTITY]**, and it has to move within **[HOURS]**. Here is who we call first, why the top keyword match would have spoiled it, and who gets pinged automatically if #1 says no."*
-- [ ] **Git Setup:** Everyone added as a GitHub Collaborator, repo cloned in Cloud Shell, and each person checked out their branch (`git checkout -b <branch>`).
+- [x] **Pick our Metro:** `chicago` *(Recommended: `chicago`, `philadelphia`, or `new-york` for high no-vehicle signal)*
+- [x] **Pick our Track:** **Retail & Grocer Rescue** ("Uber for expiring restaurant & grocery pickups")
+- [x] **Write our 1-sentence opening scenario:**
+  > *"We coordinate food rescue in **Chicago**. A **local grocer** has just offered us **10 crates of spinach**, and it has to move within **6 hours**. Here is who we call first, why the top keyword match would have spoiled it, and who gets pinged automatically if #1 says no."*
+- [x] **Git Setup:** Everyone added as a GitHub Collaborator, repo cloned in Cloud Shell, and each person checked out their branch (`git checkout -b <branch>`).
 
 ---
 
-## 🗄️ Lane 1: Data & Vector Search (`branch: data`) — `@TODO_Name_1`
+## 🗄️ Lane 1: Data & Vector Search (`branch: data`) — `@beshermahrouka`
 
 ### Milestone 1A: Load & Validate (Target: 0:30)
-- [ ] Run `bash scripts/load.sh <metro>` (or `notebooks/c2_01_load_explore.ipynb`) to load `a4i_food.recipients`, `a4i_food.surplus_postings`, `a4i_food.shelf_life`, and `a4i_food.tract_demographics`.
-- [ ] Verify all 4 tables have rows and check distinct `profile_text` percentage.
-- [ ] Inspect the 4 planted judge traps in `a4i_food.recipients` (`profile_source = 'planted'`):
-  - [ ] Locate `Greenline Community Pantry` (near-miss decoy: wants greens, `cold_storage = 'none'`).
-  - [ ] Locate `Harborview Neighbors Trust` (contradiction: claims walk-in freezer AND single cupboard shelf).
-  - [ ] Locate `Cedar Street` & `Maple Street Produce Alliance` (genuine tie).
+- [x] Run `bash scripts/load.sh <metro>` (or `notebooks/c2_01_load_explore.ipynb`) to load `a4i_food.recipients`, `a4i_food.surplus_postings`, `a4i_food.shelf_life`, and `a4i_food.tract_demographics`.
+- [x] Verify all 4 tables have rows and check distinct `profile_text` percentage.
+- [x] Inspect the 4 planted judge traps in `a4i_food.recipients` (`profile_source = 'planted'`):
+  - [x] Locate `Greenline Community Pantry` (near-miss decoy: wants greens, `cold_storage = 'none'`).
+  - [x] Locate `Harborview Neighbors Trust` (contradiction: claims walk-in freezer AND single cupboard shelf).
+  - [x] Locate `Cedar Street` & `Maple Street Produce Alliance` (genuine tie).
 
 ### Milestone 1B: Embeddings & Vector Search SQL (Target: 0:45 — *Unblocks Lane 2 & 3!*)
-- [ ] Create Cloud Resource Connection & Embedding Model (`gemini-embedding-2`) in the same region (`US`).
-- [ ] Materialize embeddings on `a4i_food.recipients` (`profile_text`) and `a4i_food.shelf_life`.
-- [ ] Save working `VECTOR_SEARCH` SQL query in `sql/match_recipients.sql` (`options => '{"use_brute_force":true}'`) joined with:
-  - [ ] `ST_DISTANCE` from donor `(lat, lon)` to recipient `(zip_lat, zip_lon)`
-  - [ ] Nearest census tract in `a4i_food.tract_demographics` (`poverty_rate`, `pct_no_vehicle`)
-- [ ] Share the working SQL query with **Lane 2** and **Lane 3**.
+- [x] Create Cloud Resource Connection & Embedding Model (`gemini-embedding-2`) in the same region (`US`).
+- [x] Materialize embeddings on `a4i_food.recipients` (`profile_text`) and `a4i_food.shelf_life`.
+- [x] Save working `VECTOR_SEARCH` SQL query in `sql/match_recipients.sql` (`options => '{"use_brute_force":true}'`) joined with:
+  - [x] `ST_DISTANCE` from donor `(lat, lon)` to recipient `(zip_lat, zip_lon)`
+  - [x] Nearest census tract in `a4i_food.tract_demographics` (`poverty_rate`, `pct_no_vehicle`)
+- [x] Share the working SQL query with **Lane 2** and **Lane 3**.
 
 ### Milestone 1C: Equity Audit for Judges (Target: 2:30)
-- [ ] Run our matcher across all 10 offers in `a4i_food.surplus_postings`.
-- [ ] Compare the matched recipients' average `poverty_rate` and `pct_no_vehicle` against the metro-wide average.
-- [ ] Save numbers in `docs/equity_audit.md` and hand off to **Lane 5** for the slide deck.
+- [x] Run our matcher across all 10 offers in `a4i_food.surplus_postings`.
+- [x] Compare the matched recipients' average `poverty_rate` and `pct_no_vehicle` against the metro-wide average.
+- [x] Save numbers in `docs/equity_audit.md` and hand off to **Lane 5** for the slide deck.
 
 ---
 
