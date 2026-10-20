@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
 from dotenv import load_dotenv
 from fastapi import FastAPI
-
-load_dotenv()
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
+
+# Load .env from project root or current working directory
+_ROOT_DIR = Path(__file__).resolve().parent.parent if "__file__" in globals() else Path.cwd()
+load_dotenv(_ROOT_DIR / ".env")
+load_dotenv()
 
 from agent.tools import check_shelf_life_clock, find_and_rank_recipients
 
@@ -26,10 +31,15 @@ class MatchRequest(BaseModel):
     requires_cold_storage: bool = True
     requires_pickup_van: bool = True
     declined_recipient_names: list[str] = []
+    api_key: str | None = None
 
 
 @app.post("/api/match")
 def api_match(req: MatchRequest):
+    if req.api_key:
+        os.environ["GEMINI_API_KEY"] = req.api_key.strip()
+        os.environ["GOOGLE_API_KEY"] = req.api_key.strip()
+
     clock = check_shelf_life_clock(
         food_item=req.posting_text,
         donor_deadline_hours=req.donor_deadline_hours,
@@ -105,6 +115,15 @@ def index():
           </div>
         </div>
 
+        <div>
+          <label class="text-xs text-slate-400 flex items-center justify-between">
+            <span>🔑 Gemini API Key (Local Dev)</span>
+            <span class="text-[10px] text-slate-500">Optional · persists locally</span>
+          </label>
+          <input id="api_key" type="password" placeholder="AIzaSy... (or load from .env)"
+            class="w-full mt-1 bg-slate-950 border border-slate-700 rounded-lg p-2 text-xs font-mono text-slate-200 focus:border-emerald-500 focus:outline-none" />
+        </div>
+
         <button onclick="runDispatch([])"
           class="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold py-2.5 rounded-lg transition">
           ⚡ Find & Dispatch Food Banks
@@ -123,6 +142,24 @@ def index():
   <script>
     let declinedList = [];
 
+    // Local storage key persistence for dev ease
+    const API_KEY_STORAGE_KEY = 'rescue_gemini_api_key';
+    const apiKeyInput = document.getElementById('api_key');
+    if (apiKeyInput) {
+      const savedKey = localStorage.getItem(API_KEY_STORAGE_KEY);
+      if (savedKey) {
+        apiKeyInput.value = savedKey;
+      }
+      apiKeyInput.addEventListener('input', (e) => {
+        const val = e.target.value.trim();
+        if (val) {
+          localStorage.setItem(API_KEY_STORAGE_KEY, val);
+        } else {
+          localStorage.removeItem(API_KEY_STORAGE_KEY);
+        }
+      });
+    }
+
     function setScenario(text, pallets, hours) {
       document.getElementById('posting_text').value = text;
       document.getElementById('pallets').value = pallets;
@@ -138,17 +175,22 @@ def index():
 
     async function runDispatch(declined) {
       declinedList = declined;
+      const keyVal = document.getElementById('api_key')?.value?.trim();
+      const payload = {
+        posting_text: document.getElementById('posting_text').value,
+        pallets_offered: parseInt(document.getElementById('pallets').value || '1'),
+        donor_deadline_hours: parseFloat(document.getElementById('hours').value || '6'),
+        requires_cold_storage: true,
+        requires_pickup_van: true,
+        declined_recipient_names: declinedList
+      };
+      if (keyVal) {
+        payload.api_key = keyVal;
+      }
       const res = await fetch('/api/match', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          posting_text: document.getElementById('posting_text').value,
-          pallets_offered: parseInt(document.getElementById('pallets').value || '1'),
-          donor_deadline_hours: parseFloat(document.getElementById('hours').value || '6'),
-          requires_cold_storage: true,
-          requires_pickup_van: true,
-          declined_recipient_names: declinedList
-        })
+        body: JSON.stringify(payload)
       });
       const data = await res.json();
       renderResults(data);
