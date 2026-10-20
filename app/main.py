@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 from dotenv import load_dotenv
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
@@ -14,6 +14,7 @@ _ROOT_DIR = Path(__file__).resolve().parent.parent if "__file__" in globals() el
 load_dotenv(_ROOT_DIR / ".env")
 load_dotenv()
 
+from agent.intake import build_pantry_profile, register_pantry
 from agent.tools import check_shelf_life_clock, find_and_rank_recipients
 
 app = FastAPI(title="Uber for Food Rescue — A4I Challenge 2")
@@ -54,6 +55,46 @@ def api_match(req: MatchRequest):
         declined_recipient_names=req.declined_recipient_names,
     )
     result["clock"] = clock
+    return result
+
+
+class IntakeRequest(BaseModel):
+    """The coordinator's interview answers, in their own words (see agent/intake.py)."""
+
+    name: str = ""
+    street: str = ""
+    city: str = ""
+    zip_code: str = ""
+    cold_storage_answer: str = ""
+    pallet_handling_answer: str = ""
+    pickup_window_answer: str = ""
+    transport_answer: str = ""
+    freezer_answer: str = ""
+    max_pallets_answer: str = ""
+    state: str = ""
+    weekly_households: int = 0
+    populations_served: str = ""
+    service_days: str = ""
+    food_needs: str = ""
+
+
+class IntakeRegisterRequest(IntakeRequest):
+    # The coordinator's explicit "yes, that's right" after reading the profile back.
+    confirmed: bool = False
+
+
+@app.post("/api/intake/profile")
+def api_intake_profile(req: IntakeRequest):
+    """Preview: parse the answers and return the profile plus the next follow-up question."""
+    return build_pantry_profile(**req.model_dump())
+
+
+@app.post("/api/intake/register")
+def api_intake_register(req: IntakeRegisterRequest):
+    """Write the pantry to the corpus only when `confirmed` is true; otherwise preview."""
+    result = register_pantry(**req.model_dump())
+    if result["status"] == "error":
+        raise HTTPException(status_code=502, detail=result["error"])
     return result
 
 
