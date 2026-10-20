@@ -62,6 +62,7 @@ class MatchRequest(BaseModel):
     donor_lon: float = -87.6298
     declined_recipient_names: list[str] = []
     routing_policy: str = "equity_weighted"
+    dispatch_day: str = ""
     api_key: str | None = None
 
 
@@ -87,6 +88,7 @@ def api_match(req: MatchRequest) -> dict[str, Any]:
         donor_lon=req.donor_lon,
         declined_recipient_names=req.declined_recipient_names,
         routing_policy=req.routing_policy,
+        dispatch_day=req.dispatch_day,
     )
     result["clock"] = clock
     return result
@@ -256,6 +258,7 @@ class BriefRequest(BaseModel):
     donor_lon: float = -87.6298
     declined_recipient_names: list[str] = []
     routing_policy: str = "equity_weighted"
+    dispatch_day: str = ""
     question: str = ""
 
 
@@ -277,6 +280,7 @@ def api_brief(req: BriefRequest) -> dict[str, Any]:
         donor_lon=req.donor_lon,
         declined_recipient_names=req.declined_recipient_names,
         routing_policy=req.routing_policy,
+        dispatch_day=req.dispatch_day,
     )
     result["clock"] = clock
 

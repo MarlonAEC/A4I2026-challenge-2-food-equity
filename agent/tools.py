@@ -36,9 +36,10 @@ import urllib.parse
 import urllib.request
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +64,8 @@ BQ_TIMEOUT_S = float(os.environ.get("BQ_TIMEOUT_S", "30"))
 # Default donor coordinates (Downtown Chicago loop / central metro fallback)
 DEFAULT_DONOR_LAT = float(os.environ.get("DEFAULT_DONOR_LAT", "41.8781"))
 DEFAULT_DONOR_LON = float(os.environ.get("DEFAULT_DONOR_LON", "-87.6298"))
+# "Today" for service-day checks is the metro's local date, not the server's.
+DISPATCH_TZ = ZoneInfo(os.environ.get("DISPATCH_TZ", "America/Chicago"))
 
 UNIT_HOURS: dict[str, int] = {
     "hour": 1,
@@ -1176,12 +1179,13 @@ def _fetch_candidates(
     posting_text: str,
     donor_lat: float,
     donor_lon: float,
-    top_k: int = 40,
+    top_k: int = 100,
 ) -> tuple[list[dict[str, Any]], str, str | None]:
     """Fetch semantic candidate recipients via BigQuery `VECTOR_SEARCH` or the offline corpus.
 
     `semantic_score` is the embeddings' cosine similarity, unmodified: the hard filters and
-    ranking downstream decide fit. Each candidate carries its nearest census tract's rates.
+    ranking downstream decide fit. `top_k` is wide because those filters (clock, storage,
+    service day) discard most candidates; at 40, a Thursday spinach run kept only one. Each candidate carries its nearest census tract's rates.
 
     Returns:
         (candidates, source, error). `source` is `"bigquery_vector_search"`,
@@ -1388,6 +1392,66 @@ def _parse_declined_set(declined_recipient_ids: Any) -> tuple[set[int], set[str]
         else:
             names.add(item.lower())
     return ids, names
+
+
+_WEEKDAYS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
+_WEEKDAY_RE = "|".join(_WEEKDAYS)
+_ORDINALS = {"first": 1, "second": 2, "third": 3, "fourth": 4, "last": -1}
+
+
+def _resolve_dispatch_date(dispatch_day: str) -> tuple[date | None, str | None]:
+    """Resolve `dispatch_day` to a date, or None when the coordinator turned the filter off.
+
+    "" or "today" is today in DISPATCH_TZ; a weekday name is its next occurrence (today
+    included); an ISO date is taken as given; "any" disables the service-day filter.
+    Returns (date, note), where note explains an input that couldn't be read.
+    """
+    text = str(dispatch_day or "").strip().lower()
+    if text == "any":
+        return None, None
+    today = datetime.now(DISPATCH_TZ).date()
+    if not text or text == "today":
+        return today, None
+    if text == "tomorrow":
+        return today + timedelta(days=1), None
+    try:
+        return date.fromisoformat(text), None
+    except ValueError:
+        pass
+    m = re.search(_WEEKDAY_RE, text)
+    if m:
+        offset = (_WEEKDAYS.index(m.group(0)) - today.weekday()) % 7
+        return today + timedelta(days=offset), None
+    return today, f"Couldn't read dispatch_day={dispatch_day!r}; checked service days for today instead."
+
+
+def _serves_on(service_days: Any, day: date) -> bool | None:
+    """Whether free-text `service_days` covers `day`; None when it names no readable schedule.
+
+    Handles the corpus's forms: "Monday, Wednesday, Friday", "Monday through Friday",
+    "Daily", and monthly ones like "Second and fourth Wednesday of the month".
+    """
+    text = str(service_days or "").lower()
+    if not text:
+        return None
+    if "daily" in text or "every day" in text:
+        return True
+    weekday = day.weekday()
+    span = re.search(rf"({_WEEKDAY_RE})s?\s*(?:through|thru|to|-|–)\s*({_WEEKDAY_RE})", text)
+    if span:
+        start, end = _WEEKDAYS.index(span.group(1)), _WEEKDAYS.index(span.group(2))
+        return (weekday - start) % 7 <= (end - start) % 7
+    named = {_WEEKDAYS.index(w) for w in re.findall(_WEEKDAY_RE, text)}
+    if not named:
+        return None
+    if weekday not in named:
+        return False
+    ordinals = {n for w, n in _ORDINALS.items() if re.search(rf"\b{w}\b", text)}
+    if ordinals and "month" in text:
+        nth = (day.day - 1) // 7 + 1
+        is_last = (day + timedelta(days=7)).month != day.month
+        return nth in ordinals or (-1 in ordinals and is_last)
+    return True
 
 
 # Two candidates with equal values here are operationally interchangeable for an offer
@@ -1896,6 +1960,7 @@ def find_and_rank_recipients(
     requires_pickup_van: bool = False,
     declined_recipient_names: list[str] | None = None,
     routing_policy: str = "equity_weighted",
+    dispatch_day: str = "",
 ) -> dict[str, Any]:
     """Match a surplus food posting to qualified recipients and return the Shared JSON Contract.
 
@@ -1907,8 +1972,9 @@ def find_and_rank_recipients(
        contradictions (e.g. `Harborview Neighbors Trust`), frozen/cold/clinical storage
        (e.g. the `Greenline Community Pantry` decoy with `cold_storage='none'`), household
        fridges offered pallet-scale perishables, the donor's pickup-van requirement, pickup
-       windows longer than the effective clock, and pallet loads for hand-carry-only sites
-       (`max_pallets=0`, which can still take loads of up to one pallet as boxes).
+       windows longer than the effective clock, pallet loads for hand-carry-only sites
+       (`max_pallets=0`, which can still take loads of up to one pallet as boxes), and
+       recipients whose `service_days` don't include the dispatch day.
     4. Ranks survivors on semantic similarity, census-tract need (`poverty_rate` &
        `pct_no_vehicle`), logistics, and proximity, and explains any operationally identical
        pair (e.g. `Cedar Street` vs. `Maple Street`) in `tie_breaker_explanation`.
@@ -1938,6 +2004,10 @@ def find_and_rank_recipients(
         routing_policy: Either `"equity_weighted"` (strongly boosts severe transit-desert
             tracts with `pct_no_vehicle > 35%` or `poverty_rate > 25%`) or
             `"logistics_first"` (prioritizes largest intake capacity and fastest pickup).
+        dispatch_day: Day the food is collected: "" or "today" (today in Chicago), a weekday
+            the coordinator names ("Thursday"), an ISO date ("2026-10-22"), or "any" to skip
+            the service-day filter. Recipients closed that day are rejected; those whose
+            `service_days` can't be read are kept with `serves_dispatch_day=None`.
 
     Returns:
         Dictionary adhering to the Shared JSON Contract (`posting_summary`, `matches`,
@@ -1974,6 +2044,9 @@ def find_and_rank_recipients(
     need_cold = bool(clock["requires_cold_storage"])
     need_frozen = bool(attrs["requires_frozen"])
     need_medical = bool(attrs["requires_medical_cold"])
+
+    dispatch_date, dispatch_day_note = _resolve_dispatch_date(dispatch_day)
+    dispatch_label = f"{dispatch_date:%A %Y-%m-%d}" if dispatch_date else "any (service-day filter off)"
 
     declined_ids, declined_names = _parse_declined_set(declined_recipient_ids)
     if declined_recipient_names:
@@ -2095,6 +2168,15 @@ def find_and_rank_recipients(
             )
             continue
 
+        # 6. Open on the dispatch day: an unreadable schedule is kept, flagged, not guessed
+        serves_day = _serves_on(cand.get("service_days"), dispatch_date) if dispatch_date else None
+        if serves_day is False:
+            reject(
+                f"Matched #{sem_rank} on meaning, but BLOCKED by service-day filter: open "
+                f"'{cand.get('service_days')}', not on {dispatch_date:%A %Y-%m-%d}."
+            )
+            continue
+
         # Survived all hard filters: dual-policy score (Milestone 3D). Missing tract data
         # and distance score neutral (0.5) rather than as invented values.
         poverty_pct = _rate_to_pct(cand.get("poverty_rate"))
@@ -2148,6 +2230,7 @@ def find_and_rank_recipients(
 
         cand_enriched = dict(cand)
         cand_enriched["pickup_window_hours"] = pickup_win
+        cand_enriched["serves_dispatch_day"] = serves_day
         # Drive time needs real pantry coordinates; without them traffic stays unknown.
         traffic_info = None
         if cand.get("latitude") is not None and cand.get("longitude") is not None:
@@ -2257,6 +2340,11 @@ def find_and_rank_recipients(
             f"{'high-vulnerability ' if c.get('is_high_vulnerability_tract') else ''}tract need: "
             f"{_fmt_need(c)}. Profile match: \"{c.get('profile_text', '')[:120]}...\""
         )
+        if dispatch_date and c["serves_dispatch_day"] is None:
+            why_them = (
+                f"{why_them} | Service days '{c.get('service_days') or 'not listed'}' don't confirm "
+                f"they're open {dispatch_date:%A}: call ahead."
+            )
         if c["name"] in tie_notes:
             why_them = f"{why_them} | {tie_notes[c['name']]}"
 
@@ -2298,6 +2386,7 @@ def find_and_rank_recipients(
                 "pallets_assigned": pallets_assigned,
                 "pallets_allocated": pallets_assigned,
                 "service_days": str(c.get("service_days") or ""),
+                "serves_dispatch_day": c["serves_dispatch_day"],
                 "pickup_window_hours": c["pickup_window_hours"],
                 "margin_hours": c["margin_hours"],
                 "semantic_score": c.get("semantic_score"),
@@ -2330,6 +2419,8 @@ def find_and_rank_recipients(
             "effective_window_hours": clock["effective_window_hours"],
             "shelf_life_note": clock["shelf_life_note"],
             "donor": {"lat": donor_lat, "lon": donor_lon},
+            "dispatch_day": dispatch_label,
+            "dispatch_day_note": dispatch_day_note,
             "routing_policy": normalized_policy,
             "recall_status": food_safety["recall_status"],
             "halt_dispatch": food_safety["halt_dispatch"],
@@ -2361,6 +2452,7 @@ def split_bulk_load_across_pantries(
     donor_deadline_hours: float = 0.0,
     routing_policy: str = "equity_weighted",
     max_pantries: int = 3,
+    dispatch_day: str = "",
 ) -> dict[str, Any]:
     """Partition a large bulk surplus offer across 2–3 nearby pantries with tailored messages.
 
@@ -2376,6 +2468,7 @@ def split_bulk_load_across_pantries(
         donor_deadline_hours: Donor cutoff in hours (0 = auto-infer from `posting_text`).
         routing_policy: `"equity_weighted"` (default) or `"logistics_first"`.
         max_pantries: Maximum number of pantries to include in the split schedule (2–3).
+        dispatch_day: Collection day, as in `find_and_rank_recipients` ("" = today).
 
     Returns:
         Dictionary with `posting_summary`, `split_schedule` (grouped allocation schedule
@@ -2387,6 +2480,7 @@ def split_bulk_load_across_pantries(
         pallets_estimate=pallets_offered,
         routing_policy=routing_policy,
         top_n=max(5, max_pantries + 2),
+        dispatch_day=dispatch_day,
     )
 
     matches = match_res.get("matches", [])
@@ -2465,6 +2559,7 @@ def dispatch_pickup_and_fallback(
     donor_lat: float = DEFAULT_DONOR_LAT,
     donor_lon: float = DEFAULT_DONOR_LON,
     routing_policy: str = "equity_weighted",
+    dispatch_day: str = "",
 ) -> dict[str, Any]:
     """Dispatch a pickup alert and automatically cascade to Backup #2/#3 if #1 declines.
 
@@ -2489,6 +2584,7 @@ def dispatch_pickup_and_fallback(
         donor_lat: Same as the original match.
         donor_lon: Same as the original match.
         routing_policy: Either `"equity_weighted"` (default) or `"logistics_first"`.
+        dispatch_day: Same as the original match ("" = today).
 
     Returns:
         Dictionary containing the updated Shared JSON Contract (`posting_summary`,
@@ -2558,6 +2654,7 @@ def dispatch_pickup_and_fallback(
         declined_recipient_names=declined_recipient_names,
         routing_policy=routing_policy,
         top_n=3,
+        dispatch_day=dispatch_day,
     )
 
     matches = result.get("matches", [])
@@ -3071,6 +3168,7 @@ def run_equity_audit_across_postings(routing_policy: str = "equity_weighted") ->
             donor_deadline_hours=float(posting["hours_available"]),
             routing_policy=routing_policy,
             top_n=1,
+            dispatch_day="any",
         )
 
     # Each posting is an independent BigQuery round trip; run them side by side.

@@ -47,6 +47,7 @@ def query_match(
             requires_pickup_van=requires_pickup_van,
             declined_recipient_names=declined,
             top_n=top_n,
+            dispatch_day="any",  # the traps test the filters, not today's calendar
         )
         res["clock"] = clock
         return res
@@ -59,6 +60,7 @@ def query_match(
         "requires_cold_storage": True,
         "requires_pickup_van": requires_pickup_van,
         "declined_recipient_names": declined,
+        "dispatch_day": "any",
     }).encode("utf-8")
     req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"}, method="POST")
     with urllib.request.urlopen(req, timeout=60) as resp:

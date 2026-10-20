@@ -679,7 +679,8 @@ def register_pantry(
     hit = next((c for c in candidates if int(c.get("recipient_id") or -1) == new_id), None)
     # Being retrieved is not enough: the matcher's hard filters decide whether they are ever offered food.
     ranked = find_and_rank_recipients(
-        posting_text=probe, donor_lat=record["latitude"], donor_lon=record["longitude"], top_n=25
+        posting_text=probe, donor_lat=record["latitude"], donor_lon=record["longitude"], top_n=25,
+        dispatch_day="any",
     )
     blocked = next((d for d in ranked["rejected_decoys"] if d.get("name") == record["name"]), None)
 
