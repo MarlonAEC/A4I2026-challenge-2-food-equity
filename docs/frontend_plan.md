@@ -45,7 +45,7 @@ flowchart LR
 - **Oddbunch page:** visual reference only. Not a dependency.
 - **UI calls tools directly** through `/api/match` (fast, deterministic). The ADK agent produces the narrative Match Brief through `/api/brief` with a template fallback when Gemini is unreachable.
 - **Voice:** every string in the UI follows the Product Voice guide in `ROADMAP.md`. Short version: "We have extra food", "Needs to go by…", "Find who can take it", "Can they keep it cold?", "Who can take it", "Who will pick it up?", "They said no? Try next pantry", "Why we skipped Greenline: no refrigerator", "Text message to send to the pantry".
-- **Open decision (Andrew):** record the video on seeded demo data or on live BigQuery. See "Decision needed" at the bottom.
+- **Decided (Andrew, 11:55):** record the video on **seeded demo data** with the "Demo data" badge visible, and show one live BigQuery vector-search query in the video for the "genuinely used" point. Track B still reports what the live top 15 looks like, for the deck.
 
 ---
 
@@ -257,7 +257,7 @@ Assumes a ~14:45 portal upload. Adjust if the facilitator gave a different time.
 | 13:45 → 14:30 | Rehearse once out loud, then record the pitch video with Marlon. Keep a screenshot fallback. | — |
 | 14:30 → 14:45 | Upload the four items to the portal. | — |
 
-### Decision needed: seeded or live for the recording?
+### Decision (made): seeded for the recording, one live query shown in the video
 
 Lane 1's live audit shows the top live match for the spinach offer is **Anso Child Development** (6.1% poverty), not Cedar Street. The seeded story (Greenline decoy, Harborview contradiction, Cedar vs Maple tie) and the live data disagree.
 
