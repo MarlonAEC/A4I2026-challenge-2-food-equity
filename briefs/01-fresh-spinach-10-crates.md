@@ -1,71 +1,65 @@
 # Match Brief: Fresh spinach (10 crates)
 
-Generated Tue 20 Oct 2026, 2:32 PM CT · Live BigQuery vector search · equity-weighted routing
+**1 pallet · keep cold · move by 8:47 PM today (6 h)**
 
-> “10 crates of spinach, harvested yesterday, needs cold storage” · 1 pallet · keep cold · must move by 8:32 PM
+Donor's words: “10 crates of spinach, harvested yesterday, needs cold storage”
 
-## 1. Cedar Street Produce Alliance
+<sub>Live BigQuery vector search · equity-weighted routing · generated Tue 20 Oct 2026, 2:47 PM CT</sub>
 
-**Address:** Street address not on file (Chicago, IL)
+## Send to: Cedar Street Produce Alliance
 
-- **Why them:** They have a walk-in cooler with room for 10 pallets, and their own refrigerated van to collect it. Their profile says: “We turn fresh fruit and vegetables within 48 hours and serve about 600 households a week.”
-- **What they can take:** All 1 pallet (room for up to 10). Must stay cold: they have a walk-in cooler.
-- **The clock:** Food must move by **8:32 PM** (6 h). They can collect within 4 h via their van, by 6:32 PM, leaving **2 h** of margin. Drive is about 16 min (2 min of that is traffic).
-- **Who it helps:** South Lawndale: the surrounding census tract has 34.8% of people in poverty and 31.2% of households without a car.
+Street address not on file (Chicago, IL) · **South Lawndale**
 
-**Outreach message, ready to send:**
+| | |
+|---|---|
+| **Collect by** | 6:47 PM · **2 h margin** |
+| **Takes** | All 1 pallet (holds 10) |
+| **Storage** | Walk-in cooler |
+| **Pickup** | Own refrigerated van · 16 min drive (+2 traffic) |
+| **Need nearby** | 34.8% in poverty · 31.2% of households without a car |
 
-```text
-Hi Cedar Street Produce Alliance, this is the food rescue coordinator. A donor is offering 1 pallet: “10 crates of spinach, harvested yesterday, needs cold storage.” It needs to stay cold. Could your van collect it from the Loop before 8:32 PM today? Reply ACCEPT to claim it or DECLINE so we can offer it to the next pantry.
-```
+**Why them:** Walk-in cooler, room for 10 pallets, their own refrigerated van, and they can take it within 4 h of the 6 h available.
+
+Profile: “We turn fresh fruit and vegetables within 48 hours and serve about 600 households a week.”
+
+**Message to send:**
+
+> Hi Cedar Street Produce Alliance, this is the food rescue coordinator. A donor is offering 1 pallet: “10 crates of spinach, harvested yesterday, needs cold storage.” It needs to stay cold. Can your van collect it from the Loop by 8:47 PM today? Reply ACCEPT or DECLINE.
 
 ## If they say no
 
-### 2. Maple Street Produce Alliance
+| # | Organization | Neighborhood | Collect by | Margin | Pickup | Takes |
+|---|---|---|---|---|---|---|
+| 2 | Maple Street Produce Alliance | Outside Chicago's 77 community areas | 6:47 PM | 2 h | Own refrigerated van | All 1 pallet (holds 10) |
+| 3 | Deborahs Place | Near West Side | 7:47 PM | 1 h | Volunteer driver | All 1 pallet (holds 1) |
 
-**Address:** Street address not on file (Chicago, IL)
+**2. Maple Street Produce Alliance** · Street address not on file (Chicago, IL)
 
-- **Why them:** They have a walk-in cooler with room for 10 pallets, and their own refrigerated van to collect it. Their profile says: “Fresh produce hub with walk-in refrigeration and our own reefer truck.”
-- **What they can take:** All 1 pallet (room for up to 10). Must stay cold: they have a walk-in cooler.
-- **The clock:** Food must move by **8:32 PM** (6 h). They can collect within 4 h via their van, by 6:32 PM, leaving **2 h** of margin. Drive is about 19 min (2 min of that is traffic).
-- **Who it helps:** Outside Chicago's 77 community areas: the surrounding census tract has 14.2% of people in poverty and 12.8% of households without a car.
+Walk-in cooler, room for 10 pallets, their own refrigerated van, and they can take it within 4 h of the 6 h available. Profile: “Fresh produce hub with walk-in refrigeration and our own reefer truck.”
 
-**Outreach message, ready to send:**
+> Hi Maple Street Produce Alliance, this is the food rescue coordinator. A donor is offering 1 pallet: “10 crates of spinach, harvested yesterday, needs cold storage.” It needs to stay cold. Can your van collect it from the Loop by 8:47 PM today? Reply ACCEPT or DECLINE.
 
-```text
-Hi Maple Street Produce Alliance, this is the food rescue coordinator. A donor is offering 1 pallet: “10 crates of spinach, harvested yesterday, needs cold storage.” It needs to stay cold. Could your van collect it from the Loop before 8:32 PM today? Reply ACCEPT to claim it or DECLINE so we can offer it to the next pantry.
-```
+**3. Deborahs Place** · 2822 West Jackson Blvd, Chicago, IL 60612
 
-### 3. Deborahs Place
+Household fridges, room for 1 pallet, volunteer-driver delivery, and they can take it within 5 h of the 6 h available. ⚠️ Their profile doesn't mention fresh produce: confirm they want it.
 
-**Address:** 2822 West Jackson Blvd, Chicago, IL 60612
+> Hi Deborahs Place, this is the food rescue coordinator. A donor is offering 1 pallet: “10 crates of spinach, harvested yesterday, needs cold storage.” It needs to stay cold. We'd send a volunteer driver from the Loop. Can you receive it by 8:47 PM today? Reply ACCEPT or DECLINE.
 
-- **Why them:** They have household fridges only with room for 1 pallet, but no vehicle, so a volunteer driver would deliver it. Their profile doesn't mention this kind of food, so they were picked on storage, capacity and timing. Confirm they want it before dispatching.
-- **What they can take:** All 1 pallet (room for up to 1). Must stay cold: they have household fridges only. Household fridges fill up fast, so ask whether they have room today.
-- **The clock:** Food must move by **8:32 PM** (6 h). They can collect within 5 h via a volunteer driver, by 7:32 PM, leaving **1 h** of margin. Drive is about 9 min (1 min of that is traffic).
-- **Who it helps:** Near West Side: the surrounding census tract has 40.2% of people in poverty and 68.1% of households without a car.
+## Skipped
 
-**Outreach message, ready to send:**
+These matched on meaning but failed a hard check:
 
-```text
-Hi Deborahs Place, this is the food rescue coordinator. A donor is offering 1 pallet: “10 crates of spinach, harvested yesterday, needs cold storage.” It needs to stay cold. We'd send a volunteer driver from the Loop. Could you receive it before 8:32 PM today? Reply ACCEPT to claim it or DECLINE so we can offer it to the next pantry.
-```
-
-## Blocked by the constraint checks
-
-These matched the offer on meaning, but can't safely take it:
-
-- **Greenline Community Pantry**: Matched #1 on meaning ('Our families ask for fresh greens and salad vegetables more than anything else'), but BLOCKED by constraint filter: cold_storage='none' (no refrigeration on site).
-- **Brookfield Family Resource Center**: Matched #5 on meaning, but BLOCKED by clock filter: pickup_window_hours=12h exceeds the 6h effective spoilage/donor deadline.
-- **Harborview Neighbors Trust** (#6 on meaning): Profile contradicts itself and its storage flags: claims 'large walk-in freezer and can accept full pallets of frozen protein' in sentence 1, but states 'Storage is a single shelf in a shared cupboard and we have no freezer at present' in sentence 2. Blocked for data integrity validation.
-- **Southline Neighbors Pantry**: Matched #7 on meaning, but BLOCKED by clock filter: pickup_window_hours=12h exceeds the 6h effective spoilage/donor deadline.
-- **Third Ward Community Table** (#8 on meaning): Contradiction detected: cold_storage column is 'walk-in', but profile_text describes only household/cupboard storage.
-- …and 18 more lower-ranked candidates (15 too slow to collect, 2 too small, 1 contradictory profile).
+- **Greenline Community Pantry** (#1 on meaning): no refrigeration on site
+- **Brookfield Family Resource Center** (#5 on meaning): needs 12 h to collect, but the food only has 6 h
+- **Harborview Neighbors Trust** (#6 on meaning): profile contradicts itself about its storage, so it can't be trusted yet
+- **Southline Neighbors Pantry** (#7 on meaning): needs 12 h to collect, but the food only has 6 h
+- **Third Ward Community Table** (#8 on meaning): record says walk-in cooler, but the profile describes household storage only
+- Plus 18 lower-ranked: 15 too slow to collect, 2 too small, 1 contradictory profile.
 
 ## Notes
 
-- FDA recall check: ADVISORY_VERIFY_LOT. ⚠️ PROCEED WITH LOT VERIFICATION: 5 active openFDA recall(s) exist in the 'spinach' category (e.g., H-0110-2026 — Del Mar Food Products Corp.: Potential contamination with Listeria monocytogenes.). Unbranded/bulk rescue may proceed after verifying donor packaging does not match recalled lot (Lot: 250107A, 250107B, 250107C, 250107D, 2501071, 2501072, 2501073 Expiration: January 7, 2027).
-- Shelf life: Matched USDA FoodKeeper 'Lettuce (leaf, spinach)' (168h refrigerated) - consumer home-storage guidance, capped by donor's 6h deadline.
-- Tie-break: Cedar Street Produce Alliance and Maple Street Produce Alliance are operationally identical (both have walk-in coolers, reefer vans, loading docks, 10-pallet capacity, and serve ~600 households/wk). Ranked Cedar Street Produce Alliance ahead based on higher neighborhood food-equity need (34.8% poverty & 31.2% no-vehicle households vs. 14.2% poverty & 12.8% no-vehicle) and shorter distance (8.74 km vs. 9.91 km).
+- FDA recalls: 5 active for “spinach”. Check the donor's lot numbers before pickup.
+- Shelf life: USDA FoodKeeper (home storage) gives 7 days; the donor's 6 h deadline is shorter, so it sets the clock.
+- Tie-break: Cedar Street Produce Alliance and Maple Street Produce Alliance are operationally identical; Cedar Street Produce Alliance ranks higher on neighborhood need and distance.
 - Clock times assume the offer was posted when this brief was generated.
-- Data: Organization names, addresses and NTEE codes are IRS records. Cold storage, capacity, pickup windows and service days are generated (no public data exists for them). Locations are ZIP centroids, so the neighborhood is approximate. Shelf life is USDA FoodKeeper consumer home-storage guidance, not a commercial cold-chain guarantee. Neighborhoods: City of Chicago community area boundaries.
+- Names and addresses are IRS records. Storage, capacity and pickup windows are generated (no public data exists). Locations are ZIP centroids, so neighborhoods are approximate. Neighborhoods are City of Chicago community areas.

@@ -56,7 +56,7 @@ def main() -> int:
             routing_policy=args.routing_policy,
         )
         brief = build_match_brief(result, donor_address=args.donor_address)
-        name = f"{int(p['posting_id']):02d}-{_slug(brief['posting']['food_item'] or p['posting_text'])}.md"
+        name = f"{int(p['posting_id']):02d}-{_slug(brief['posting']['title'])}.md"
         (args.out / name).write_text(to_markdown(brief), encoding="utf-8")
 
         top = brief["options"][0]["name"] if brief["options"] else "no viable match"
