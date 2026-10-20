@@ -1,0 +1,210 @@
+model {
+  // Actors
+  donor = actor 'Food Donor' {
+    description 'Grocers, restaurants, and farmers offering surplus food on tight expiration clocks.'
+  }
+
+  coordinator = actor 'Rescue Coordinator' {
+    description 'Dispatchers overseeing food matching, resolving declines, and reviewing equity briefs.'
+  }
+
+  pantry = actor 'Pantry Volunteer' {
+    description 'Pantry coordinators and shelter operators receiving dispatches and onboarding capacity.'
+  }
+
+  driver = actor 'Delivery Driver' {
+    description 'Volunteer drivers picking up surplus from donor docks and delivering to pantries.'
+  }
+
+  // External Systems
+  gemini = external-system 'Google Gemini (Vertex AI)' {
+    #external #agent
+    technology 'Gemini 2.5/3.8 Flash, Vertex AI'
+    description 'Foundation LLM providing multi-step reasoning, match-brief synthesis, and conversational intake.'
+  }
+
+  openfda = external-system 'openFDA Food Safety API' {
+    #external #safety
+    technology 'REST API, api.fda.gov'
+    description 'Federal enforcement feed screening surplus food for active recalls and undeclared allergens.'
+  }
+
+  chicago-traffic = external-system 'City of Chicago Traffic Tracker' {
+    #external #civic
+    technology 'Civic Open Data API / OSRM'
+    description 'Live congestion and arterial traffic speed feed for transit ETA calculations.'
+  }
+
+  osm-tiles = external-system 'OpenStreetMap Tile Service' {
+    #external
+    technology 'Leaflet CDN'
+    description 'Map tile provider rendering Chicago geospatial layers, tracts, and pantry pins.'
+  }
+
+  // Primary System
+  broker = system 'Food Equity & Surplus Broker' {
+    description 'Real-time broker matching perishable surplus with verified community pantries under tight clocks.'
+
+    web-ui = container 'RescueDispatch Web Console' {
+      #frontend
+      technology 'HTML5, Leaflet.js, CSS3'
+      description 'Interactive console featuring 1-click scenarios, live Chicago map, 7-part match briefs, and smartphone SMS simulator.'
+    }
+
+    api-backend = container 'FastAPI Dispatch Service' {
+      #backend
+      technology 'Python 3.11, FastAPI, Uvicorn'
+      description 'REST API handling match requests, fallback cascading, live equity audits, and pantry onboarding.'
+    }
+
+    agent-engine = container 'ADK Agent Reasoning Engine' {
+      #agent
+      technology 'Google ADK, Python'
+      description 'Autonomous reasoning layer orchestrating multi-step coordinator inquiries and onboarding.'
+
+      broker-agent = component 'Surplus Broker Root Agent' {
+        #agent
+        technology 'Google ADK, Gemini 2.5 Flash'
+        description 'Evaluates offers, invokes logistics tools, weighs trade-offs, and synthesizes 7-part match briefs.'
+      }
+
+      intake-agent = component 'Conversational Pantry Intake Agent' {
+        #agent
+        technology 'Conversational Subagent'
+        description 'Interviews new pantry coordinators, extracts capacity schemas, and generates profile texts.'
+      }
+    }
+
+    logistics-tools = container 'Uber Logistics Tool Suite' {
+      #logistics
+      technology 'Python 3.11'
+      description 'Deterministic domain tools enforcing cold chain physics, safety margins, and spatial equity.'
+
+      clock-calc = component 'Shelf-Life Clock Calculator' {
+        technology 'Python'
+        description 'Calculates effective pickup window from USDA shelf-life references and donor deadlines.'
+      }
+
+      matcher = component 'Constraint Filter & Tie-Breaker' {
+        technology 'Python'
+        description 'Hard-filters cold-chain decoys and contradictions, then breaks ties on vehicle-insecurity and poverty rates.'
+      }
+
+      cascading-dispatcher = component 'Cascading Dispatch Engine' {
+        technology 'Python'
+        description 'Generates tailored dispatch alerts and instantly shifts to backup pantries if primary declines.'
+      }
+
+      load-splitter = component 'Multi-Pantry Bulk Partitioning' {
+        technology 'Python'
+        description 'Partitions massive agricultural donations across multiple pantries when exceeding single capacity.'
+      }
+
+      recall-checker = component 'Food Safety Recall Guardrail' {
+        technology 'Python'
+        description 'Queries openFDA to halt or flag postings subject to active food recall notices.'
+      }
+
+      traffic-router = component 'Chicago Traffic & Route Router' {
+        technology 'Python'
+        description 'Computes real-time driving duration, congestion delay, and safety margins.'
+      }
+
+      equity-auditor = component 'Spatial Equity Auditor' {
+        technology 'Python'
+        description 'Measures demographic lift against metro baselines and uncovers cold-chain rescue deserts.'
+      }
+    }
+
+    mcp-toolbox = container 'MCP Database Toolbox' {
+      #backend #database
+      technology 'Google Cloud MCP Toolbox for Databases'
+      description 'Google-managed Model Context Protocol server exposing BigQuery schema and SQL query execution.'
+    }
+
+    bigquery = database 'BigQuery Warehouse & Vector Store' {
+      #database
+      technology 'Google Cloud BigQuery (a4i_food dataset)'
+      description 'Analytical warehouse storing recipient profiles, census tracts, USDA shelf-life, and vector embeddings.'
+
+      recipients-data = component 'Recipients & Capacities Table' {
+        technology 'BigQuery Table'
+        description 'Stores organizations, walk-in cold storage capacity, pickup windows, and embedding vectors.'
+      }
+
+      shelf-life-data = component 'USDA Shelf-Life Catalog' {
+        technology 'BigQuery Table'
+        description 'Standard perishable and pantry food storage guidelines and maximum viable hours.'
+      }
+
+      tract-demographics = component 'Census Tract Demographics' {
+        technology 'BigQuery Table & Spatial Polygons'
+        description 'Cook County tract demographic metrics (poverty rate, zero-vehicle percentage, internal centroids).'
+      }
+
+      vector-index = component 'BigQuery Vector Search Engine' {
+        technology 'VECTOR_SEARCH, gemini-embedding-2'
+        description 'Cosine distance semantic search identifying matching pantries from donor natural language postings.'
+      }
+
+      rescue-deserts = component 'Rescue Deserts Spatial View' {
+        technology 'BigQuery View'
+        description 'Identifies tracts with >30% poverty and >40% no-vehicle rates having 0 cold-storage pantries within 5km.'
+      }
+    }
+  }
+
+  // Actor Relationships
+  donor -> broker.web-ui 'Submits surplus offer with deadline clock'
+  coordinator -> broker.web-ui 'Reviews match brief, inspects decoys, and triggers dispatches'
+  pantry -> broker.web-ui 'Onboards new pantry via conversational interview'
+  driver -> broker.web-ui 'Receives turn-by-turn routing and pickup alerts'
+
+  // Frontend to Backend
+  broker.web-ui -> broker.api-backend 'Sends match, cascade, and intake requests' {
+    technology 'HTTPS / JSON REST'
+  }
+  broker.web-ui -> osm-tiles 'Fetches Chicago map tiles' {
+    technology 'HTTPS'
+  }
+
+  // Backend Wiring
+  broker.api-backend -> broker.agent-engine 'Dispatches coordinator queries and briefs'
+  broker.api-backend -> broker.logistics-tools 'Executes deterministic matching, clocks, and traffic tools'
+  broker.api-backend -> broker.bigquery 'Queries demographic baselines and audits' {
+    technology 'BigQuery Client SDK'
+  }
+
+  // Agent to Tools and Models
+  broker.agent-engine.broker-agent -> gemini 'Prompts model with context and constraints' {
+    technology 'gRPC / HTTPS'
+  }
+  broker.agent-engine.intake-agent -> gemini 'Converses with pantry coordinator' {
+    technology 'gRPC / HTTPS'
+  }
+  broker.agent-engine.broker-agent -> broker.logistics-tools 'Calls logistics and safety tools'
+  broker.agent-engine.broker-agent -> broker.mcp-toolbox 'Executes ad-hoc queries via MCP protocol' {
+    technology 'MCP JSON-RPC'
+  }
+
+  // Logistics Tools Internal & External Connections
+  broker.logistics-tools.clock-calc -> broker.bigquery.shelf-life-data 'Reads shelf-life reference hours'
+  broker.logistics-tools.matcher -> broker.bigquery.vector-index 'Runs VECTOR_SEARCH on donor description'
+  broker.logistics-tools.matcher -> broker.bigquery.recipients-data 'Filters by cold storage & capacity'
+  broker.logistics-tools.matcher -> broker.bigquery.tract-demographics 'Enriches with poverty & vehicle stats'
+  broker.logistics-tools.recall-checker -> openfda 'Screens food description for active recalls' {
+    technology 'HTTPS REST'
+  }
+  broker.logistics-tools.traffic-router -> chicago-traffic 'Retrieves live street congestion speeds' {
+    technology 'HTTPS REST'
+  }
+  broker.logistics-tools.equity-auditor -> broker.bigquery.rescue-deserts 'Audits spatial distribution and gaps'
+
+  // MCP to BigQuery
+  broker.mcp-toolbox -> broker.bigquery 'Introspects tables and runs ad-hoc SQL' {
+    technology 'BigQuery API'
+  }
+
+  // Conversational Intake Registration
+  broker.agent-engine.intake-agent -> broker.bigquery.recipients-data 'Inserts new recipient record with embeddings'
+}
