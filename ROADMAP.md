@@ -75,14 +75,14 @@
 - [x] Plug in **Lane 3's** custom tools from `agent/tools.py`.
 
 ### Milestone 2C: Coordinator Q&A Verification (Target: 2:15)
-- [ ] Test all 7 coordinator questions from `README.md`:
-  - [ ] *"Who can take 10 crates of spinach and collect before 8pm?"*
-  - [ ] *"Why them and not the other pantry?"* (explains why `Greenline` decoy was rejected)
-  - [ ] *"They said no. Who's next?"* (promotes Backup #2)
-  - [ ] *"How long does spinach actually last?"* (cites `shelf_life` + consumer guidance caveat)
-  - [ ] *"Can they pick it up themselves or do we need a driver?"* (`refrigerated_transport`)
-  - [ ] *"Whose neighborhood does this help?"* (`tract_demographics`)
-  - [ ] *"Write the pickup message."*
+- [x] Test all 7 coordinator questions from `README.md`:
+  - [x] *"Who can take 10 crates of spinach and collect before 8pm?"*
+  - [x] *"Why them and not the other pantry?"* (explains why `Greenline` decoy was rejected)
+  - [x] *"They said no. Who's next?"* (promotes Backup #2)
+  - [x] *"How long does spinach actually last?"* (cites `shelf_life` + consumer guidance caveat)
+  - [x] *"Can they pick it up themselves or do we need a driver?"* (`refrigerated_transport`)
+  - [x] *"Whose neighborhood does this help?"* (`tract_demographics`)
+  - [x] *"Write the pickup message."*
 
 ---
 
