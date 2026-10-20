@@ -22,11 +22,12 @@ try:
 except ImportError:
     pass
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from agent.intake import build_pantry_profile, register_pantry
 from agent.tools import check_shelf_life_clock, find_and_rank_recipients
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -50,6 +51,7 @@ class MatchRequest(BaseModel):
     donor_lat: float = 41.8781
     donor_lon: float = -87.6298
     declined_recipient_names: list[str] = []
+    routing_policy: str = "equity_weighted"
     api_key: str | None = None
 
 
@@ -74,8 +76,49 @@ def api_match(req: MatchRequest) -> dict[str, Any]:
         donor_lat=req.donor_lat,
         donor_lon=req.donor_lon,
         declined_recipient_names=req.declined_recipient_names,
+        routing_policy=req.routing_policy,
     )
     result["clock"] = clock
+    return result
+
+
+class IntakeRequest(BaseModel):
+    """The coordinator's interview answers, in their own words (see agent/intake.py)."""
+
+    name: str = ""
+    street: str = ""
+    city: str = ""
+    zip_code: str = ""
+    cold_storage_answer: str = ""
+    pallet_handling_answer: str = ""
+    pickup_window_answer: str = ""
+    transport_answer: str = ""
+    freezer_answer: str = ""
+    max_pallets_answer: str = ""
+    state: str = ""
+    weekly_households: int = 0
+    populations_served: str = ""
+    service_days: str = ""
+    food_needs: str = ""
+
+
+class IntakeRegisterRequest(IntakeRequest):
+    # The coordinator's explicit "yes, that's right" after reading the profile back.
+    confirmed: bool = False
+
+
+@app.post("/api/intake/profile")
+def api_intake_profile(req: IntakeRequest) -> dict[str, Any]:
+    """Preview: parse the answers and return the profile plus the next follow-up question."""
+    return build_pantry_profile(**req.model_dump())
+
+
+@app.post("/api/intake/register")
+def api_intake_register(req: IntakeRegisterRequest) -> dict[str, Any]:
+    """Write the pantry to the corpus only when `confirmed` is true; otherwise preview."""
+    result = register_pantry(**req.model_dump())
+    if result["status"] == "error":
+        raise HTTPException(status_code=502, detail=result["error"])
     return result
 
 
@@ -120,6 +163,7 @@ class BriefRequest(BaseModel):
     donor_lat: float = 41.8781
     donor_lon: float = -87.6298
     declined_recipient_names: list[str] = []
+    routing_policy: str = "equity_weighted"
     question: str = ""
 
 
@@ -140,6 +184,7 @@ def api_brief(req: BriefRequest) -> dict[str, Any]:
         donor_lat=req.donor_lat,
         donor_lon=req.donor_lon,
         declined_recipient_names=req.declined_recipient_names,
+        routing_policy=req.routing_policy,
     )
     result["clock"] = clock
 
