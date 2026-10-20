@@ -40,6 +40,18 @@ def _has_contradiction(cold_storage: str, profile_text: str) -> bool:
     return False
 
 
+def _reject(c: dict[str, Any], reason_code: str, rejection_reason: str) -> dict[str, Any]:
+    """Shared JSON Contract shape for a skipped candidate (keeps lat/lon so the map can pin it)."""
+    return {
+        "name": c["name"],
+        "semantic_rank": c["semantic_rank"],
+        "lat": c.get("lat"),
+        "lon": c.get("lon"),
+        "reason_code": reason_code,
+        "rejection_reason": rejection_reason,
+    }
+
+
 def check_shelf_life_clock(
     food_item: str,
     donor_deadline_hours: float = 6.0,
@@ -129,6 +141,7 @@ def find_and_rank_recipients(
     dataset_id = os.environ.get("BQ_DATASET", "a4i_food")
 
     candidates: list[dict[str, Any]] = []
+    data_source = "seeded_fallback"
 
     # Try live BigQuery VECTOR_SEARCH first if GOOGLE_CLOUD_PROJECT is configured
     if project_id:
@@ -177,6 +190,7 @@ def find_and_rank_recipients(
                 ]
             )
             rows = client.query(sql, job_config=job_config).result()
+            data_source = "bigquery_live"
             for idx, r in enumerate(rows, start=1):
                 d_km = _haversine_km(donor_lat, donor_lon, float(r.lat or donor_lat), float(r.lon or donor_lon))
                 candidates.append({
@@ -205,6 +219,7 @@ def find_and_rank_recipients(
         except Exception:
             # Fall back cleanly to deterministic seed corpus if embeddings table isn't created yet
             candidates = []
+            data_source = "seeded_fallback"
 
     if not candidates:
         # Seeded realistic corpus including all 4 planted judge cases from profile_components.json
@@ -348,65 +363,41 @@ def find_and_rank_recipients(
     for c in candidates:
         # Check if already declined by coordinator
         if c["name"].strip().lower() in declined_set:
-            rejected_decoys.append({
-                "name": c["name"],
-                "semantic_rank": c["semantic_rank"],
-                "rejection_reason": "Declined pickup ('They said no') — automatically routing to next backup.",
-            })
+            rejected_decoys.append(_reject(c, "declined", "Declined pickup ('They said no') — automatically routing to next backup."))
             continue
 
         # Hard Filter 1: Contradictory profile check (Harborview Neighbors Trust)
         if _has_contradiction(c["cold_storage"], c["profile_text"]):
-            rejected_decoys.append({
-                "name": c["name"],
-                "semantic_rank": c["semantic_rank"],
-                "rejection_reason": (
+            rejected_decoys.append(_reject(c, "contradiction", (
                     f"BLOCKED (Profile Contradiction): Column states cold_storage='{c['cold_storage']}', "
                     "but profile text states 'single shelf in a shared cupboard and we have no freezer at present'."
-                ),
-            })
+                )))
             continue
 
         # Hard Filter 2: Cold storage requirement (catches Greenline Community Pantry decoy!)
         if requires_cold_storage and c["cold_storage"] == "none":
-            rejected_decoys.append({
-                "name": c["name"],
-                "semantic_rank": c["semantic_rank"],
-                "rejection_reason": (
+            rejected_decoys.append(_reject(c, "no_cold_storage", (
                     f"BLOCKED (No Refrigeration Decoy): Ranked #{c['semantic_rank']} on semantic meaning, "
                     "but cold_storage='none'. Sending perishables here would spoil the food."
-                ),
-            })
+                )))
             continue
 
         # Hard Filter 3: Frozen requirement
         if requires_frozen and not c["frozen_storage"]:
-            rejected_decoys.append({
-                "name": c["name"],
-                "semantic_rank": c["semantic_rank"],
-                "rejection_reason": "BLOCKED (No Freezer): Offer requires frozen storage.",
-            })
+            rejected_decoys.append(_reject(c, "no_freezer", "BLOCKED (No Freezer): Offer requires frozen storage."))
             continue
 
         # Hard Filter 4: Pickup window vs clock
         if c["pickup_window_hours"] > donor_deadline_hours:
-            rejected_decoys.append({
-                "name": c["name"],
-                "semantic_rank": c["semantic_rank"],
-                "rejection_reason": (
+            rejected_decoys.append(_reject(c, "too_slow", (
                     f"BLOCKED (Too Slow for Clock): Needs {c['pickup_window_hours']}h pickup window, "
                     f"but donor deadline is {donor_deadline_hours}h."
-                ),
-            })
+                )))
             continue
 
         # Hard Filter 5: Must have own refrigerated van if donor requires pickup
         if requires_pickup_van and not c["refrigerated_transport"]:
-            rejected_decoys.append({
-                "name": c["name"],
-                "semantic_rank": c["semantic_rank"],
-                "rejection_reason": "BLOCKED (No Pickup Vehicle): Organization has no refrigerated transport van.",
-            })
+            rejected_decoys.append(_reject(c, "no_vehicle", "BLOCKED (No Pickup Vehicle): Organization has no refrigerated transport van."))
             continue
 
         # Composite tie-breaker score: Semantic Fit (40%) + Tract Need (40%) + Proximity (20%)
@@ -449,10 +440,13 @@ def find_and_rank_recipients(
             "pallets_offered": pallets_offered,
             "donor_deadline_hours": donor_deadline_hours,
             "requires_cold_storage": requires_cold_storage,
+            "requires_frozen": requires_frozen,
             "requires_pickup_van": requires_pickup_van,
+            "donor": {"lat": donor_lat, "lon": donor_lon},
         },
         "matches": valid_matches[:3],
         "rejected_decoys": rejected_decoys,
+        "data_source": data_source,
     }
 
 
