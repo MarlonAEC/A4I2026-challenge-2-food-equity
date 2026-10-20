@@ -78,24 +78,24 @@
   6. Ready-to-Send Pickup Alert Message
   7. Backups #2 and #3 ("If They Say No") + Rejected Decoys warning
 - [x] Plug in **Lane 3's** custom tools from `agent/tools.py`.
-- [ ] Connect `run_equity_audit_across_postings` into `tools_list` in `agent/agent.py` so the agent can execute real-time Responsible AI audits on demand.
+- [x] Connect `run_equity_audit_across_postings` into `tools_list` in `agent/agent.py` so the agent can execute real-time Responsible AI audits on demand.
 
 ### Milestone 2C: Coordinator Q&A Verification (Target: 2:15)
-- [ ] Test all coordinator questions from `README.md` (7 original + Responsible AI audit):
-  - [ ] *"Who can take 10 crates of spinach and collect before 8pm?"*
-  - [ ] *"Why them and not the other pantry?"* (explains why `Greenline` decoy was rejected)
-  - [ ] *"They said no. Who's next?"* (promotes Backup #2)
-  - [ ] *"How long does spinach actually last?"* (cites `shelf_life` + consumer guidance caveat)
-  - [ ] *"Can they pick it up themselves or do we need a driver?"* (`refrigerated_transport`)
-  - [ ] *"Whose neighborhood does this help?"* (`tract_demographics`)
-  - [ ] *"Write the pickup message."*
-  - [ ] *"Run an equity audit across our dispatches — are we favoring loading docks over high-need tracts?"* (cites `docs/equity_audit.md` findings)
+- [x] Test all coordinator questions from `README.md` (7 original + Responsible AI audit):
+  - [x] *"Who can take 10 crates of spinach and collect before 8pm?"*
+  - [x] *"Why them and not the other pantry?"* (explains why `Greenline` decoy was rejected)
+  - [x] *"They said no. Who's next?"* (promotes Backup #2)
+  - [x] *"How long does spinach actually last?"* (cites `shelf_life` + consumer guidance caveat)
+  - [x] *"Can they pick it up themselves or do we need a driver?"* (`refrigerated_transport`)
+  - [x] *"Whose neighborhood does this help?"* (`tract_demographics`)
+  - [x] *"Write the pickup message."*
+  - [x] *"Run an equity audit across our dispatches — are we favoring loading docks over high-need tracts?"* (cites live `run_equity_audit_across_postings` findings)
 
 ### Milestone 2D: Conversational Pantry Intake Agent (Going Further — "The 4-Hour Add-on")
-- [ ] Implement conversational intake prompt / subagent (`agent/intake.py`):
-  - [ ] Interviews a new pantry coordinator conversationally: *"What kind of cold storage do you have?"* -> follow-up: *"Can you take a pallet off a truck, or does it need hand-carry boxes through a regular door?"*
-  - [ ] Generates structured schema (`cold_storage`, `max_pallets`, `pickup_window_hours`, `refrigerated_transport`) and synthesizes `profile_text`.
-  - [ ] Appends new recipient to `a4i_food.recipients`, calls `AI.EMBED` (or offline fallback), making the pantry immediately searchable in the demo!
+- [x] Implement conversational intake prompt / subagent (`agent/intake.py`):
+  - [x] Interviews a new pantry coordinator conversationally: *"What kind of cold storage do you have?"* -> follow-up: *"Can you take a pallet off a truck, or does it need hand-carry boxes through a regular door?"*
+  - [x] Generates structured schema (`cold_storage`, `max_pallets`, `pickup_window_hours`, `refrigerated_transport`) and synthesizes `profile_text`.
+  - [x] Appends new recipient to `a4i_food.recipients`, calls `AI.EMBED` (or offline fallback), making the pantry immediately searchable in the demo!
 
 ---
 

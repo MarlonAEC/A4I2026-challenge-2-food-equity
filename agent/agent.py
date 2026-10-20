@@ -14,17 +14,20 @@ try:
 except ImportError:
     pass
 
+from .intake import intake_agent
 from .prompt import SYSTEM_INSTRUCTION
 from .tools import (
     check_shelf_life_clock,
     dispatch_pickup_and_fallback,
     find_and_rank_recipients,
+    run_equity_audit_across_postings,
 )
 
 tools_list = [
     check_shelf_life_clock,
     find_and_rank_recipients,
     dispatch_pickup_and_fallback,
+    run_equity_audit_across_postings,
 ]
 
 MCP_TOOLBOX_URL = os.environ.get("MCP_TOOLBOX_URL")
@@ -49,6 +52,7 @@ try:
         ),
         instruction=SYSTEM_INSTRUCTION,
         tools=tools_list,
+        sub_agents=[intake_agent] if intake_agent is not None else [],
     )
 except ImportError:
     root_agent = None
