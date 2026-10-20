@@ -162,8 +162,8 @@ def find_and_rank_recipients(
               'embedding',
               (
                 SELECT AI.EMBED(
-                  MODEL `{project_id}.{dataset_id}.embedding_model`,
-                  CONTENT => @query_text
+                  @query_text,
+                  endpoint => 'gemini-embedding-2'
                 ).result AS embedding
               ),
               top_k => 15,

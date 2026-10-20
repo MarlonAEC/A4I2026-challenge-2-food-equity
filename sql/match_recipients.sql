@@ -67,8 +67,8 @@ WITH semantic_candidates AS (
     'embedding',
     (
       SELECT AI.EMBED(
-        MODEL `a4i_food.embedding_model`,
-        CONTENT => @query_text
+        @query_text,
+        endpoint => 'gemini-embedding-2'
       ).result AS embedding
     ),
     top_k => 15,
