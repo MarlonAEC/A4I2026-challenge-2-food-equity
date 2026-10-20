@@ -37,6 +37,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from .brief import community_area_for
+
 # ---------------------------------------------------------------------------
 # Configuration & Constants
 # ---------------------------------------------------------------------------
@@ -514,7 +516,7 @@ def check_shelf_life_clock(
     if any(w in text_lower for w in ("diaper", "diapers", "wipes", "hygiene")):
         note = (
             "Non-food essential (diapers/wipes) — not tracked in USDA FoodKeeper. "
-            f"Effective clock defaults to donor's {deadline:g}h window."
+            f"Effective clock defaults to donor's {round(deadline, 1):g}h window."
         )
         return {
             "food_item": inferred["food_item"],
@@ -541,7 +543,7 @@ def check_shelf_life_clock(
         note = (
             "Matched USDA FoodKeeper 'Liquid concentrate or ready-to-feed formula'. "
             "FoodKeeper only tracks formula AFTER opening; because this donation is "
-            f"factory-sealed, effective clock keeps the donor's {deadline:g}h window "
+            f"factory-sealed, effective clock keeps the donor's {round(deadline, 1):g}h window "
             "(consumer home-storage guidance caveat applies)."
         )
         return {
@@ -680,6 +682,14 @@ def check_shelf_life_clock(
                         ),
                         "pantry_note": str(best_r.get("pantry_note") or "ok"),
                     }
+                    # The BigQuery table has no freezer columns; take them from the local FoodKeeper row
+                    local_rec = next(
+                        (p for p in products if p["product_id"] == matched_rec["product_id"]), None
+                    )
+                    matched_rec["frozen_hours"] = local_rec.get("frozen_hours") if local_rec else None
+                    matched_rec["frozen_note"] = (
+                        local_rec.get("frozen_note") if local_rec else "not_specified"
+                    )
         except Exception:
             matched_rec = None
 
@@ -767,7 +777,7 @@ def check_shelf_life_clock(
     if matched_rec is None:
         note = (
             "No direct USDA FoodKeeper product match; falling back to donor's "
-            f"{deadline:g}h deadline (USDA FoodKeeper is consumer home-storage guidance)."
+            f"{round(deadline, 1):g}h deadline (USDA FoodKeeper is consumer home-storage guidance)."
         )
         return {
             "food_item": inferred["food_item"],
@@ -792,8 +802,8 @@ def check_shelf_life_clock(
         usda_hours = matched_rec.get("refrigerated_hours")
         sentinel_note = matched_rec.get("refrigerated_note", "ok")
     elif resolved_state == "frozen":
-        usda_hours = matched_rec.get("frozen_hours") or matched_rec.get("refrigerated_hours")
-        sentinel_note = matched_rec.get("frozen_note") or matched_rec.get("refrigerated_note", "ok")
+        usda_hours = matched_rec.get("frozen_hours")
+        sentinel_note = matched_rec.get("frozen_note") or "not_specified"
     else:
         usda_hours = matched_rec.get("pantry_hours")
         sentinel_note = matched_rec.get("pantry_note", "ok")
@@ -818,27 +828,32 @@ def check_shelf_life_clock(
         note_text = (
             f"Matched USDA FoodKeeper '{display_prod}' — duration is sentinel "
             f"'package use-by date' (recorded as note 'see_package', never 0h). "
-            f"Capped by donor's {deadline:g}h deadline. Consumer home-storage guidance."
+            f"Capped by donor's {round(deadline, 1):g}h deadline. Consumer home-storage guidance."
         )
     elif sentinel_note == "shelf_stable":
         note_text = (
             f"Matched USDA FoodKeeper '{display_prod}' — sentinel 'indefinitely' "
-            f"(shelf_stable, {usda_hours}h). Effective pickup window is donor's {deadline:g}h deadline."
+            f"(shelf_stable, {usda_hours}h). Effective pickup window is donor's {round(deadline, 1):g}h deadline."
         )
     elif sentinel_note == "not_recommended":
         note_text = (
             f"Matched USDA FoodKeeper '{display_prod}' — storage state '{resolved_state}' "
-            f"is marked 'not recommended' (never parsed as 0h). Using donor's {deadline:g}h window."
+            f"is marked 'not recommended' (never parsed as 0h). Using donor's {round(deadline, 1):g}h window."
         )
     elif sentinel_note == "ripeness_dependent":
         note_text = (
             f"Matched USDA FoodKeeper '{display_prod}' — sentinel 'when ripe' (72h conservative). "
             f"Effective window: {effective_hours:g}h. Consumer home-storage guidance."
         )
+    elif usda_hours is None:
+        note_text = (
+            f"Matched USDA FoodKeeper '{display_prod}' — USDA lists no duration for "
+            f"{resolved_state} storage (not 0h). Using donor's {round(deadline, 1):g}h window."
+        )
     else:
         note_text = (
             f"Matched USDA FoodKeeper '{display_prod}' ({usda_hours}h {resolved_state}) - "
-            f"consumer home-storage guidance, capped by donor's {deadline:g}h deadline."
+            f"consumer home-storage guidance, capped by donor's {round(deadline, 1):g}h deadline."
         )
 
     return {
@@ -2560,8 +2575,8 @@ def find_and_rank_recipients(
             draft_msg = sp_entry["draft_split_message"]
         else:
             draft_msg = (
-                f"URGENT PICKUP AVAILABLE: {attrs['food_item']} (~{c['pallets_assigned']} pallet(s)) "
-                f"available now at {c['distance_km']} km away. Must be collected within "
+                f"URGENT PICKUP AVAILABLE: {attrs['food_item']}, ~{c['pallets_assigned']} pallet(s), "
+                f"available now {c['distance_km']} km from you. Must be collected within "
                 f"{effective_window:g}h (fits your {c['effective_pickup_hours']}h "
                 f"{'reefer van' if c.get('refrigerated_transport') else 'pickup'} window; "
                 f"{c['margin_hours']}h safety margin). Reply ACCEPT to claim or DECLINE to pass to backup."
@@ -2595,6 +2610,8 @@ def find_and_rank_recipients(
                 "equity_context": {
                     "poverty_rate": c["poverty_pct"],
                     "pct_no_vehicle": c["no_vehicle_pct"],
+                    "community_area": community_area_for(c.get("latitude"), c.get("longitude"))
+                    or "Outside Chicago's 77 community areas",
                 },
                 "draft_message": draft_msg,
             }
