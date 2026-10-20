@@ -121,17 +121,17 @@
   - [x] Supports instant re-dispatch to Backup #2 / #3 when #1 declines.
 
 ### Milestone 3D: Dual Routing Policy & Multi-Pantry Split Tool (Going Further)
-- [ ] Add `routing_policy` toggle (`"logistics_first"` vs. `"equity_weighted"`) in `agent/tools.py`:
-  - [ ] **Logistics-First Mode (Default):** Prioritizes largest intake capacity and fastest pickup window.
-  - [ ] **Equity-Weighted Mode:** Strongly boosts pantries situated in severe transit-desert tracts (`pct_no_vehicle > 35%` or `poverty_rate > 25%`).
-- [ ] Implement Multi-Pantry Load Splitting for large bulk farm offers (e.g., 5 tons of potatoes / 10 pallets):
-  - [ ] When `pallets_offered > top_recipient.max_pallets`, automatically partition the load across 2–3 nearby neighborhood pantries.
-  - [ ] Output a grouped allocation schedule with individual tailored dispatch messages.
+- [x] Add `routing_policy` toggle (`"logistics_first"` vs. `"equity_weighted"`) in `agent/tools.py`:
+  - [x] **Logistics-First Mode (Default):** Prioritizes largest intake capacity and fastest pickup window.
+  - [x] **Equity-Weighted Mode:** Strongly boosts pantries situated in severe transit-desert tracts (`pct_no_vehicle > 35%` or `poverty_rate > 25%`).
+- [x] Implement Multi-Pantry Load Splitting for large bulk farm offers (e.g., 5 tons of potatoes / 10 pallets):
+  - [x] When `pallets_offered > top_recipient.max_pallets`, automatically partition the load across 2–3 nearby neighborhood pantries.
+  - [x] Output a grouped allocation schedule with individual tailored dispatch messages.
 
 ### Milestone 3E: Real-Time openFDA Food Safety Guardrail (Going Further — CC0 External API)
-- [ ] Implement `check_food_recalls(product_name)` in `agent/tools.py` using openFDA Food Enforcement API (`https://api.fda.gov/food/enforcement.json`):
-  - [ ] Checks incoming surplus postings for active food recall alerts (e.g., listeria in bagged spinach, undeclared allergens).
-  - [ ] Halts or flags high-risk surplus items before dispatching to community pantries.
+- [x] Implement `check_food_recalls(product_name)` in `agent/tools.py` using openFDA Food Enforcement API (`https://api.fda.gov/food/enforcement.json`):
+  - [x] Checks incoming surplus postings for active food recall alerts (e.g., listeria in bagged spinach, undeclared allergens).
+  - [x] Halts or flags high-risk surplus items before dispatching to community pantries.
 
 ---
 
