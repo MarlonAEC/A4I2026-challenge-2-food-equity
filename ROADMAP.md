@@ -55,9 +55,9 @@
 - [x] Save numbers in `docs/equity_audit.md` and hand off to **Lane 5** for the slide deck.
 
 ### Milestone 1D: "Rescue Deserts" & Spatial Equity Analysis (Going Further — 25% Rigor Score)
-- [ ] Cross-reference census tracts in Cook County with matched pantry locations to identify **"Rescue Deserts"** (tracts with `poverty_rate > 30%` and `pct_no_vehicle > 40%` that have 0 verified cold-storage recipients within a 5 km radius).
-- [ ] Document the structural infrastructure deficit: articulate for judges why food rescue algorithms cannot solve food access without municipal investments in cold chain / walk-in coolers.
-- [ ] Export spatial equity metrics into `docs/equity_audit.md` for Lane 4 (map layer) and Lane 5 (pitch deck).
+- [x] Cross-reference census tracts in Cook County with matched pantry locations to identify **"Rescue Deserts"** (tracts with `poverty_rate > 30%` and `pct_no_vehicle > 40%` that have 0 verified cold-storage recipients within a 5 km radius).
+- [x] Document the structural infrastructure deficit: articulate for judges why food rescue algorithms cannot solve food access without municipal investments in cold chain / walk-in coolers.
+- [x] Export spatial equity metrics into `docs/equity_audit.md` for Lane 4 (map layer) and Lane 5 (pitch deck).
 
 ---
 
@@ -135,18 +135,18 @@
 
 ---
 
-## 🖥️ Lane 4: Frontend "Uber Dispatch" UI (`branch: frontend`) — `@TODO_Name_4`
+## 🖥️ Lane 4: Frontend "Uber Dispatch" UI (`branch: frontend`) — `@braysh`
 
 ### Milestone 4A: UI Layout with Mock Data (Target: 1:15)
-- [ ] Build `app/` using the **Shared JSON Contract** below (don't wait for backend!):
-  - [ ] **Donor Post Panel:** 3 one-click demo scenario buttons + free-text input + coordinator follow-up chat box.
-  - [ ] **Live City Map:** Shows Donor pin, Match #1 (Green), Backups #2 & #3 (Amber), and Blocked Decoy (Red/Gray).
-  - [ ] **Match Brief & Dispatch Panel:** Displays countdown clock badge, capacity badges (`🚐 Has Reefer Van`, `❄️ Walk-in Cooler`), equity stats, and drafted SMS message.
-  - [ ] **"They Said No" Button:** Clicking `[❌ Decline Pickup -> Ping Backup #2]` animates/switches the active dispatch to #2 immediately.
+- [x] Build `app/` using the **Shared JSON Contract** below:
+  - [x] **Donor Post Panel:** Quick call demo scenario buttons + free-text input + coordinator follow-up chat box.
+  - [x] **Live City Map:** Shows Donor pin, Match #1 (Green), Backups #2 & #3 (Amber), and Blocked Decoy (Red/Gray).
+  - [x] **Match Brief & Dispatch Panel:** Displays countdown clock badge, capacity badges (`🚐 Has Reefer Van`, `❄️ Walk-in Cooler`), equity stats, and drafted SMS message.
+  - [x] **"They Said No" Button:** Clicking `[❌ Decline Pickup -> Ping Backup #2]` animates/switches the active dispatch to #2 immediately.
 
 ### Milestone 4B: Connect Live Agent Backend (Target: 2:15)
-- [ ] Wire UI to **Lane 2's** ADK agent runner / FastAPI endpoint.
-- [ ] Test end-to-end flow on the presentation laptop.
+- [x] Wire UI to **Lane 2 & Lane 3** broker tools / FastAPI endpoint (`/api/match`, `/api/brief`, `/api/equity_audit`).
+- [x] Test end-to-end flow on the presentation laptop.
 
 ### Milestone 4C: Live Equity Audit Dashboard & Policy Switch (Going Further)
 - [ ] Add an interactive **"📊 Live Equity Audit & Baseline Comparison"** view/modal in `app/main.py`:

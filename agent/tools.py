@@ -606,37 +606,37 @@ def check_shelf_life_clock(
 
     products = _load_local_foodkeeper()
 
+    # Canonical USDA synonym mappings from Notebook Section 10
+    preferred_name: str | None = None
+    preferred_subtitle_token: str | None = None
+
+    if "spinach" in text_lower or "salad greens" in text_lower or "leafy greens" in text_lower:
+        preferred_name = "Lettuce"
+        preferred_subtitle_token = "spinach"
+    elif "milk" in text_lower:
+        preferred_name = "Milk"
+        preferred_subtitle_token = "plain"
+    elif "yogurt" in text_lower:
+        preferred_name = "Yogurt"
+    elif "bread" in text_lower or "pastries" in text_lower or "loaves" in text_lower:
+        preferred_name = "Bread"
+        preferred_subtitle_token = "commercial"
+    elif "sandwich" in text_lower or "deli" in text_lower or "prepared" in text_lower:
+        preferred_name = "Leftovers"
+    elif "potato" in text_lower:
+        preferred_name = "Potatoes"
+    elif "blueberr" in text_lower or "berries" in text_lower:
+        preferred_name = "Blueberries"
+    elif "winter squash" in text_lower or "squash" in text_lower:
+        preferred_name = "Spaghetti squash"
+    elif "nutritional supplement" in text_lower or "formula" in text_lower:
+        preferred_name = "Formula"
+
     # High-precision domain rules + subtitle/keyword scoring over the 661 USDA products
     matched_rec: dict[str, Any] | None = None
 
     # Local semantic + subtitle/keyword resolver (handles all 661 FoodKeeper entries)
     if matched_rec is None and products:
-        # Check explicit canonical synonyms from Notebook Section 10 first
-        preferred_name: str | None = None
-        preferred_subtitle_token: str | None = None
-
-        if "spinach" in text_lower or "salad greens" in text_lower or "leafy greens" in text_lower:
-            preferred_name = "Lettuce"
-            preferred_subtitle_token = "spinach"
-        elif "milk" in text_lower:
-            preferred_name = "Milk"
-            preferred_subtitle_token = "plain"
-        elif "yogurt" in text_lower:
-            preferred_name = "Yogurt"
-        elif "bread" in text_lower or "pastries" in text_lower or "loaves" in text_lower:
-            preferred_name = "Bread"
-            preferred_subtitle_token = "commercial"
-        elif "sandwich" in text_lower or "deli" in text_lower or "prepared" in text_lower:
-            preferred_name = "Leftovers"
-        elif "potato" in text_lower:
-            preferred_name = "Potatoes"
-        elif "blueberr" in text_lower or "berries" in text_lower:
-            preferred_name = "Blueberries"
-        elif "winter squash" in text_lower or "squash" in text_lower:
-            preferred_name = "Spaghetti squash"
-        elif "nutritional supplement" in text_lower or "formula" in text_lower:
-            preferred_name = "Formula"
-
         if preferred_name:
             for rec in products:
                 if rec["product_name"].lower() == preferred_name.lower():
@@ -1673,7 +1673,8 @@ def find_and_rank_recipients(
         cand_enriched["margin_hours"] = int(margin_hours) if margin_hours.is_integer() else margin_hours
         cand_enriched["score_parts"] = score_parts
         cand_enriched["composite_score"] = round(sum(score_parts.values()), 4)
-        cand_enriched["pallets_assigned"] = min(max_pallets, pallets_needed)
+        # A hand-carry site (max_pallets=0) only gets here for loads of <= 1 pallet, and takes all of it as boxes.
+        cand_enriched["pallets_assigned"] = min(max_pallets, pallets_needed) if max_pallets > 0 else pallets_needed
         valid_candidates.append(cand_enriched)
 
     # Sort surviving candidates by composite_score DESC, then poverty DESC, then distance ASC
@@ -1703,8 +1704,11 @@ def find_and_rank_recipients(
             )
 
         pallets_assigned = c["pallets_assigned"]
+        hand_carry = int(c.get("max_pallets") or 0) <= 0
         load_phrase = (
-            f"~{pallets_assigned} pallet(s)" if pallets_assigned > 0 else "a boxed, hand-carry load (no pallets)"
+            "the load broken down into boxes for hand-carry (no pallets)"
+            if hand_carry
+            else f"~{pallets_assigned} pallet(s)"
         )
         transport_phrase = (
             f"own refrigerated van for pickup within {c['pickup_window_hours']} hours"
@@ -1718,7 +1722,7 @@ def find_and_rank_recipients(
         )
         dock_phrase = (
             "; no loading dock, so pallets need a liftgate truck or pallet jack"
-            if pallets_assigned > 0 and not c.get("loading_dock")
+            if not hand_carry and not c.get("loading_dock")
             else ""
         )
         distance_phrase = f"{c['distance_km']} km away" if c.get("distance_km") is not None else "distance unknown"
@@ -1758,6 +1762,8 @@ def find_and_rank_recipients(
                 "refrigerated_transport": bool(c.get("refrigerated_transport")),
                 "max_pallets": int(c.get("max_pallets") or 0),
                 "pallets_assigned": pallets_assigned,
+                "pallets_allocated": pallets_assigned,
+                "service_days": str(c.get("service_days") or ""),
                 "pickup_window_hours": c["pickup_window_hours"],
                 "margin_hours": c["margin_hours"],
                 "semantic_score": c.get("semantic_score"),
@@ -1805,13 +1811,17 @@ def find_and_rank_recipients(
     return {
         "posting_summary": {
             "food_item": clock["food_item"],
+            "posting_text": posting_text,
+            "pallets_offered": pallets_needed,
             "pallets_estimate": pallets_needed,
             "requires_cold_storage": need_cold,
             "requires_frozen": need_frozen,
+            "requires_pickup_van": requires_pickup_van,
             "donor_deadline_hours": clock["donor_deadline_hours"],
             "usda_shelf_life_hours": clock["usda_shelf_life_hours"],
             "effective_window_hours": clock["effective_window_hours"],
             "shelf_life_note": clock["shelf_life_note"],
+            "donor": {"lat": donor_lat, "lon": donor_lon},
         },
         "matches": matches_out,
         "rejected_decoys": rejected_decoys,
