@@ -18,6 +18,9 @@ credentials.json
 .DS_Store
 Thumbs.db
 
+# Downloaded MCP Toolbox binary (platform-specific, fetched by scripts/run_mcp_toolbox.sh)
+bin/toolbox
+
 # Local data pulls
 data/*.csv
 data/*.parquet

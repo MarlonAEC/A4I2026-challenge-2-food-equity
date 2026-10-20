@@ -59,12 +59,12 @@
 ## 🧠 Lane 2: ADK Agent & MCP (`branch: agent`) — `@TODO_Name_2`
 
 ### Milestone 2A: Agent Skeleton & MCP Connection (Target: 0:45)
-- [ ] Create `agent/__init__.py` and `agent/agent.py` with `root_agent` using `gemini-2.5-flash`.
-- [ ] Verify agent launches cleanly in `adk web`.
-- [ ] Connect at least **1 Google-managed MCP server** (BigQuery built-in MCP or **MCP Toolbox for Databases**).
+- [x] Create `agent/__init__.py` and `agent/agent.py` with `root_agent` using `gemini-2.5-flash`.
+- [x] Verify agent launches cleanly in `adk web`.
+- [x] Connect at least **1 Google-managed MCP server** (**MCP Toolbox for Databases**, serving BigQuery `execute_sql`/`get_table_info`/`list_dataset_ids`/etc. via `agent/mcp_tools.yaml`; verified live locally and in CI — `.github/workflows/lane2-mcp.yml`).
 
 ### Milestone 2B: System Prompt & Tool Wiring (Target: 1:30)
-- [ ] Write system instructions in `agent/prompt.py` requiring the **7-Part Match Brief**:
+- [x] Write system instructions in `agent/prompt.py` requiring the **7-Part Match Brief**:
   1. Primary Organization (`NAME` + street address)
   2. Why Them (quote/reason from `profile_text`)
   3. Capacity Fit (`cold_storage`, `frozen_storage`, `max_pallets` vs. offer)
@@ -72,7 +72,7 @@
   5. Who It Helps (`tract_demographics` poverty & no-vehicle %)
   6. Ready-to-Send Pickup Alert Message
   7. Backups #2 and #3 ("If They Say No") + Rejected Decoys warning
-- [ ] Plug in **Lane 3's** custom tools from `agent/tools.py`.
+- [x] Plug in **Lane 3's** custom tools from `agent/tools.py`.
 
 ### Milestone 2C: Coordinator Q&A Verification (Target: 2:15)
 - [ ] Test all 7 coordinator questions from `README.md`:
